@@ -1,0 +1,43 @@
+{
+  "object": {
+    "pins": [
+      {
+        "package": "MaxPNG",
+        "repositoryURL": "https://github.com/kelvin13/maxpng",
+        "state": {
+          "branch": "master",
+          "revision": "19e435bd19f52d429867e3b92a54bbedf52faa72",
+          "version": null
+        }
+      },
+      {
+        "package": "Noise",
+        "repositoryURL": "https://github.com/kelvin13/noise",
+        "state": {
+          "branch": "master",
+          "revision": "6b948afd1c18409a32723b6b8cafc16f7b1c2eee",
+          "version": null
+        }
+      },
+      {
+        "package": "OpenGL",
+        "repositoryURL": "https://github.com/kelvin13/swift-opengl",
+        "state": {
+          "branch": "master",
+          "revision": "81abcfc29c972c09db1b2ac004964b2aae5cfeae",
+          "version": null
+        }
+      },
+      {
+        "package": "XML",
+        "repositoryURL": "https://github.com/kelvin13/swiftxml",
+        "state": {
+          "branch": "master",
+          "revision": "e25bc638dcedd0bd78d43c634a1084e2f533b6c2",
+          "version": null
+        }
+      }
+    ]
+  },
+  "version": 1
+}

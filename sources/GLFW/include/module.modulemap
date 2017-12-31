@@ -1,0 +1,12 @@
+module GLFW {
+    header "shim.h"
+    link "glfw3"
+    export *
+
+    link "X11"
+    link "Xxf86vm"
+    link "Xrandr"
+    link "Xi"
+    link "Xinerama"
+    link "Xcursor"
+}
