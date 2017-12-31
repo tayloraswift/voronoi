@@ -13,14 +13,13 @@ let package = Package(
     dependencies:
     [
         .package(url: "https://github.com/kelvin13/swift-opengl", .branch("master")),
-        .package(url: "https://github.com/kelvin13/maxpng", .branch("master")),
-        .package(url: "https://github.com/kelvin13/noise", .branch("master"))
+        .package(url: "https://github.com/kelvin13/maxpng", .branch("master"))
     ],
     targets:
     [
         .target(name: "GLFW", path: "sources/GLFW"),
         .target(name: "CCairo", path: "sources/ccairo"),
         .target(name: "Cairo", dependencies: ["CCairo"], path: "sources/cairo"),
-        .target(name: "game", dependencies: ["OpenGL", "Noise", "MaxPNG", "GLFW", "Cairo"], path: "sources/game")
+        .target(name: "game", dependencies: ["OpenGL", "MaxPNG", "GLFW", "Cairo"], path: "sources/game")
     ]
 )

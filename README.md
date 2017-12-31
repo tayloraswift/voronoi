@@ -1,3 +1,3 @@
-# cloudgen
+# spherical voronoi
 
-A description of this package.
+Fortune’s algorithm on a sphere.
