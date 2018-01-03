@@ -207,6 +207,19 @@ extension Math where N:Numeric
 {
     @inline(__always)
     static
+    func sum(_ v:V2) -> N
+    {
+        return v.x + v.y
+    }
+    @inline(__always)
+    static
+    func sum(_ v:V3) -> N
+    {
+        return v.x + v.y + v.z
+    }
+
+    @inline(__always)
+    static
     func add(_ v1:V2, _ v2:V2) -> V2
     {
         return (v1.x + v2.x, v1.y + v2.y)
@@ -229,6 +242,19 @@ extension Math where N:Numeric
     func sub(_ v1:V3, _ v2:V3) -> V3
     {
         return (v1.x - v2.x, v1.y - v2.y, v1.z - v2.z)
+    }
+
+    @inline(__always)
+    static
+    func vol(_ v:V2) -> N
+    {
+        return v.x * v.y
+    }
+    @inline(__always)
+    static
+    func vol(_ v:V3) -> N
+    {
+        return v.x * v.y * v.z
     }
 
     @inline(__always)
@@ -270,6 +296,18 @@ extension Math where N:Numeric
         return v1.x * v2.x + v1.y * v2.y + v1.z * v2.z
     }
 
+    @inline(__always)
+    static
+    func eusq(_ v:V2) -> N
+    {
+        return v.x * v.x + v.y * v.y
+    }
+    @inline(__always)
+    static
+    func eusq(_ v:V3) -> N
+    {
+        return v.x * v.x + v.y * v.y + v.z * v.z
+    }
 
     @inline(__always)
     static
@@ -340,6 +378,21 @@ extension Math where N:Comparable, N:SignedNumeric
     }
 }
 
+extension Math where N:BinaryFloatingPoint
+{
+    @inline(__always)
+    static
+    func cast<I>(_ v:V2, as _:I.Type) -> Math<I>.V2 where I:BinaryInteger
+    {
+        return (I(v.x), I(v.y))
+    }
+    @inline(__always)
+    static
+    func cast<I>(_ v:V3, as _:I.Type) -> Math<I>.V3 where I:BinaryInteger
+    {
+        return (I(v.x), I(v.y), I(v.z))
+    }
+}
 extension Math where N:BinaryInteger
 {
     @inline(__always)
@@ -471,28 +524,44 @@ extension Math where N:FloatingPoint
 
     @inline(__always)
     static
+    func lerp(_ v1:V2, _ v2:V2, _ t:N) -> V2
+    {
+        return (v1.x.addingProduct(-t, v1.x).addingProduct(t, v2.x),
+                v1.y.addingProduct(-t, v1.y).addingProduct(t, v2.y))
+    }
+    @inline(__always)
+    static
+    func lerp(_ v1:V3, _ v2:V3, _ t:N) -> V3
+    {
+        return (v1.x.addingProduct(-t, v1.x).addingProduct(t, v2.x),
+                v1.y.addingProduct(-t, v1.y).addingProduct(t, v2.y),
+                v1.z.addingProduct(-t, v1.z).addingProduct(t, v2.z))
+    }
+
+    @inline(__always)
+    static
     func length(_ v:V2) -> N
     {
-        return Math.dot(v, v).squareRoot()
+        return Math.eusq(v).squareRoot()
     }
     @inline(__always)
     static
     func length(_ v:V3) -> N
     {
-        return Math.dot(v, v).squareRoot()
+        return Math.eusq(v).squareRoot()
     }
 
     @inline(__always)
     static
     func normalize(_ v:V2) -> V2
     {
-        return Math.scale(v, by: 1 / Math.dot(v, v).squareRoot())
+        return Math.scale(v, by: 1 / Math.eusq(v).squareRoot())
     }
     @inline(__always)
     static
     func normalize(_ v:V3) -> V3
     {
-        return Math.scale(v, by: 1 / Math.dot(v, v).squareRoot())
+        return Math.scale(v, by: 1 / Math.eusq(v).squareRoot())
     }
 }
 extension Math where N == Double
@@ -554,6 +623,14 @@ extension Math where N:_SwiftFloatingPoint
 
 extension Array
 {
+    @inline(__always)
+    mutating
+    func append(vector:Math<Element>.V2)
+    {
+        self.append(vector.x)
+        self.append(vector.y)
+    }
+
     @inline(__always)
     mutating
     func append(vector:Math<Element>.V3)

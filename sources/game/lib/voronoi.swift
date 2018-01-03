@@ -3,6 +3,522 @@ import func Glibc.acos
 import func Glibc.atan
 import func Glibc.atan2
 
+enum Tesselate<F> where F:BinaryFloatingPoint
+{
+    static
+    func tesselate<Index>(_ triangle:(Math<F>.V3, Math<F>.V3, Math<F>.V3),
+        maxUnit:F)
+        -> (vertexData:[F], indices:[Index])
+        where Index:BinaryInteger, Index.Stride:SignedInteger
+    {
+        //           lengths.2
+        //            0 ———— 2
+        //  lengths.0 |  ╱  lengths.1
+        //            1
+
+        let lengths:(F, F, F) = (Math.length(Math.sub(triangle.1, triangle.0)),
+                                 Math.length(Math.sub(triangle.2, triangle.1)),
+                                 Math.length(Math.sub(triangle.0, triangle.2)))
+        var points:[Math<F>.V3] = [triangle.0, triangle.1, triangle.2]
+
+        let shortest:[Index],
+            cw:[Index],
+            ccw:[Index]
+        //              cw
+        //           ↑ ———→
+        //  shortest |  ↗ ccw
+
+        // length(s1) ≥ length(s2) ⇒ subdivisions(of: s1) ≥ subdivisions(of: s2)
+        // yes, even through the floating point division.
+        if lengths.2 < lengths.1
+        {
+            // side 2 is the strictly shortest side
+            //           shortest
+            //           0 ———→ 2
+            //       ccw ↓  ↙ cw
+            //           1
+            if lengths.2 < lengths.0
+            {
+                shortest = subdivide((0, 2),
+                    n: subdivisions(lengths.2, maxUnit: maxUnit), points: &points)
+                cw       = subdivide((2, 1),
+                    n: subdivisions(lengths.1, maxUnit: maxUnit), points: &points)
+                ccw      = subdivide((0, 1),
+                    n: subdivisions(lengths.0, maxUnit: maxUnit), points: &points)
+            }
+            // side 0 is the shortest side
+            //              cw
+            //           0 ———→ 2
+            //  shortest ↑  ↗ ccw
+            //           1
+            else
+            {
+                shortest    = subdivide((1, 0),
+                    n: subdivisions(lengths.0, maxUnit: maxUnit), points: &points)
+                cw          = subdivide((0, 2),
+                    n: subdivisions(lengths.2, maxUnit: maxUnit), points: &points)
+                ccw         = subdivide((1, 2),
+                    n: subdivisions(lengths.1, maxUnit: maxUnit), points: &points)
+            }
+        }
+        else
+        {
+            // side 1 is the shortest side
+            //              ccw
+            //            0 ←——— 2
+            //         cw ↑  ↙ shortest
+            //            1
+            if lengths.1 < lengths.0
+            {
+                shortest    = subdivide((2, 1),
+                    n: subdivisions(lengths.1, maxUnit: maxUnit), points: &points)
+                cw          = subdivide((1, 0),
+                    n: subdivisions(lengths.0, maxUnit: maxUnit), points: &points)
+                ccw         = subdivide((2, 0),
+                    n: subdivisions(lengths.2, maxUnit: maxUnit), points: &points)
+            }
+            // side 0 is the shortest side
+            //              cw
+            //           0 ———→ 2
+            //  shortest ↑  ↗ ccw
+            //           1
+            else
+            {
+                shortest    = subdivide((1, 0),
+                    n: subdivisions(lengths.0, maxUnit: maxUnit), points: &points)
+                cw          = subdivide((0, 2),
+                    n: subdivisions(lengths.2, maxUnit: maxUnit), points: &points)
+                ccw         = subdivide((1, 2),
+                    n: subdivisions(lengths.1, maxUnit: maxUnit), points: &points)
+            }
+        }
+
+        // if n ≥ m, there exists an onto function from the points on the longest
+        // side of the triangle to the points on the second-longest side of the
+        // triangle.
+        let bridged:[Index] = bridgeTriangle(cw: cw, ccw: ccw, base: shortest,
+            maxUnit: maxUnit, points: &points)
+
+        var vertexData:[F] = []
+            vertexData.reserveCapacity(points.count * 3)
+        for point:Math<F>.V3 in points
+        {
+            vertexData.append(vector: point)
+        }
+
+        return (vertexData, bridged)
+    }
+
+    // meshes a big triangle where base, leg1, and leg2 are oriented like this:
+    //        cwBoundary
+    //       ↑ ———→
+    //  base |  ↗ ccwBoundary
+
+    static
+    func bridgeTriangle<Index>(cw cwBoundary:[Index], ccw ccwBoundary:[Index],
+    base:[Index], maxUnit:F, points:inout [Math<F>.V3]) -> [Index]
+        where Index:BinaryInteger, Index.Stride:SignedInteger
+    {
+        //  cwBoundary: v0 ——— v1 ——— v2 ———— v3 —— ··· —— vm  (m = count - 1)
+        // ccwBoundary: u0 —— u2 —— u3 —— u4 —— u5 — ··· — un  (n = count - 1)
+        // where n ≥ m
+        var indices:[Index] = []
+
+        var prevFar:Int = 0,
+            prevBridge:[Index]
+        let parallelBase:Bool,
+            near:[Index],
+            far:[Index]
+
+        if ccwBoundary.count < cwBoundary.count
+        {
+            prevBridge   = base.reversed()
+            parallelBase = false
+            (near, far)  = (cwBoundary, ccwBoundary)
+        }
+        else
+        {
+            prevBridge   = base
+            parallelBase = true
+            (near, far)  = (ccwBoundary, cwBoundary)
+        }
+
+        for i:Int in 1 ..< near.count - 1
+        {
+
+            let currentFar:Int = bridge(i, of: near.count - 1, to: far.count - 1)
+
+            let edge:(Index, Index) = (near[i], far[currentFar])
+            let bridgeLength:F = Math.length(Math.sub(points[Int(edge.1)],
+                                                      points[Int(edge.0)]))
+            let currentBridge:[Index] = subdivide(edge,
+                n: subdivisions(bridgeLength, maxUnit: maxUnit), points: &points)
+
+            points.withUnsafeBufferPointer
+            {
+                (pointsBuffer:UnsafeBufferPointer<Math<F>.V3>) in
+                prevBridge.withUnsafeBufferPointer
+                {
+                    (prevBuffer:UnsafeBufferPointer<Index>) in
+                    currentBridge.withUnsafeBufferPointer
+                    {
+                        (currentBuffer:UnsafeBufferPointer<Index>) in
+
+                        let  cw:UnsafeBufferPointer<Index>,
+                            ccw:UnsafeBufferPointer<Index>
+
+                        (cw, ccw) = parallelBase ? (prevBuffer, currentBuffer) :
+                                                   (currentBuffer, prevBuffer)
+
+                        if currentFar == prevFar
+                        {
+                            meshTriangle(vertex: far[currentFar],
+                                cw:  UnsafeBufferPointer(rebasing:  cw.dropLast()),
+                                ccw: UnsafeBufferPointer(rebasing: ccw.dropLast()),
+                                points: pointsBuffer.baseAddress!,
+                                indices: &indices)
+                        }
+                        else
+                        {
+                            meshQuad(cw: cw, ccw: ccw,
+                                points: pointsBuffer.baseAddress!,
+                                indices: &indices)
+                        }
+                    }
+                }
+            }
+
+            prevFar    = currentFar
+            prevBridge = currentBridge
+        }
+
+        prevBridge.withUnsafeBufferPointer
+        {
+            (buffer:UnsafeBufferPointer<Index>) in
+
+            if parallelBase
+            {
+                meshFan( cw: buffer, around: far.last!, indices: &indices)
+            }
+            else
+            {
+                meshFan(ccw: buffer, around: far.last!, indices: &indices)
+            }
+
+        }
+
+        return indices
+    }
+
+    static
+    func bridge(_ i:Int, of near:Int, to far:Int) -> Int
+    {
+        // never allow a bridge to land on the last point (the vertex
+        // between ccwBoundary and cwBoundary) because it causes degeneracies
+        let halfIndex:Int = i * far << 1 / near
+        // if halfIndex is odd, we round up, otherwise we round down
+        // index     : [0       ][1       ][2       ][3       ][4
+        // half index: [0  ][1  ][2  ][3  ][4  ][5  ][6  ][7  ]
+        print("\(i) → \(Double(i) * Double(far) / Double(near)) [\((halfIndex + halfIndex & 1) >> 1)]")
+        return min((halfIndex + halfIndex & 1) >> 1, far - 1)
+    }
+
+    // returns the number of points in the subdivision that produces no fragments
+    // longer than maxUnit. if no subdivisions happen it returns 2 (for the two
+    // original endpoints)
+    static
+    func subdivisions(_ length:F, maxUnit:F) -> Int
+    {
+        return Int((length / maxUnit).rounded(.up)) + 1
+    }
+
+    // creates n - 2 new points evenly spaced between edge.0 and edge.1, returning
+    // an n-length list of all the points along the edge, adding points to the
+    // input `points` vector if needed
+    static
+    func subdivide<Index>(_ edge:(Index, Index), n:Int, points:inout [Math<F>.V3])
+        -> [Index] where Index:BinaryInteger
+    {
+        guard n > 2
+        else
+        {
+            return [edge.0, edge.1]
+        }
+
+        let v1:Math<F>.V3 = points[Int(edge.0)],
+            v2:Math<F>.V3 = points[Int(edge.1)]
+        var indices:[Index] = [edge.0]
+            indices.reserveCapacity(n)
+
+        let ustep:F = 1 / F(n - 1)
+        var index:Index = Index(points.count)
+        for i:Int in 1 ..< n - 1
+        {
+            indices.append(index)
+            points.append(Math.lerp(v1, v2, F(i) * ustep))
+            index += 1
+        }
+
+        indices.append(edge.1)
+        return indices
+    }
+
+    // meshes the given triangular fill. we can’t just glue the vertex onto cw
+    // or ccw and feed it to meshQuad directly because it being collinear with
+    // both sets of points causes weird degeneracies.
+    //  cw ×-----------→
+    //      \ / \ / \ / \
+    //   ccw ×-------→ --o
+
+    // cw and ccw each contain at least two indices to distinct points
+    static
+    func meshTriangle<Index>(vertex:Index, cw:UnsafeBufferPointer<Index>,
+        ccw:UnsafeBufferPointer<Index>, points:UnsafePointer<Math<F>.V3>,
+        indices:inout [Index])
+        where Index:BinaryInteger
+    {
+        // lop off the pointy bit and send the rest to meshQuad
+        indices.append(vector: (ccw.last!, vertex, cw.last!))
+        meshQuad(cw: cw, ccw: ccw, points: points, indices: &indices)
+    }
+
+    // meshes the given quadrilateral
+    //  cw ×-----------→
+    //      \ / \ / \ /
+    //   ccw ×-------→
+
+    // cw and ccw each contain at least two indices to distinct points
+    static
+    func meshQuad<Index>(cw:UnsafeBufferPointer<Index>,
+        ccw:UnsafeBufferPointer<Index>, points:UnsafePointer<Math<F>.V3>,
+        indices:inout [Index])
+        where Index:BinaryInteger
+    {
+        // since cw and ccw may not have the same number of points, two
+        // “maximum parallelograms” can be carved out of them
+
+        //        0   1   2   3            0   1   2          1   2   3
+        //  cw[4] ×-----------→            ×--------          --------→
+        //         \ / \ / \ /         →    \ / \ / \    ,   / \ / \ /
+        //   ccw[3] ×-------→                ×-------→      ×-------→
+        //          0   1   2                0   1   2      0   1   2
+
+        // (if ccw and cw are the same size, the parallelograms are identical)
+
+        // we choose the parallelogram with the shortest long diagonal (the min-max).
+        // because they share one base, this gives us the least-slanted parallelogram
+        // which we can use to form a regular triangle strip. then we just fan out
+        // the remaining triangles to complete the mesh.
+
+        let minBase:Int = min(cw.count, ccw.count)
+
+        // early exit in case the quad is already a parallelogram
+        guard cw.count != ccw.count
+        else
+        {
+            meshParallelogram(cw: cw, ccw: ccw, points: points, indices: &indices)
+            return
+        }
+
+        let diagonals1:(cw:F, ccw:F),
+            diagonals2:(cw:F, ccw:F)
+
+        diagonals1.cw  = (Math.eusq(Math.sub(points[Int( cw[0          ])],
+                                             points[Int(ccw[minBase - 1])])))
+        diagonals1.ccw = (Math.eusq(Math.sub(points[Int(ccw[0          ])],
+                                             points[Int( cw[minBase - 1])])))
+
+        diagonals2.cw  = (Math.eusq(Math.sub(points[Int( cw[ cw.count - minBase])],
+                                             points[Int(ccw[ccw.count - 1      ])])))
+        diagonals2.ccw = (Math.eusq(Math.sub(points[Int(ccw[ccw.count - minBase])],
+                                             points[Int( cw[ cw.count - 1      ])])))
+
+        if max(diagonals1.cw, diagonals1.ccw) < max(diagonals2.cw, diagonals2.ccw)
+        {
+            meshParallelogram(cw: UnsafeBufferPointer(rebasing:  cw.prefix(minBase)),
+                             ccw: UnsafeBufferPointer(rebasing: ccw.prefix(minBase)),
+                points: points, indices: &indices)
+
+            //  cw ×--------       ------→
+            //      \ / \ / \   +   \ | /
+            //   ccw ×-------→        →
+            if ccw.count < cw.count
+            {
+                meshFan(cw:  UnsafeBufferPointer(rebasing:  cw.dropFirst(minBase - 1)),
+                        around: ccw.last!, indices: &indices)
+            }
+            //    cw ×-------→        →
+            //      / \ / \ /   +   / | \
+            // ccw ×--------       ------→
+            else
+            {
+                meshFan(ccw: UnsafeBufferPointer(rebasing: ccw.dropFirst(minBase - 1)),
+                        around: cw.last!, indices: &indices)
+            }
+        }
+        else
+        {
+            meshParallelogram(cw: UnsafeBufferPointer(rebasing:  cw.suffix(minBase)),
+                             ccw: UnsafeBufferPointer(rebasing: ccw.suffix(minBase)),
+                points: points, indices: &indices)
+
+            //  cw  ×------       --------→
+            //       \ | /   +   / \ / \ /
+            //  ccw    ×        ×-------→
+            if ccw.count < cw.count
+            {
+                meshFan(cw:  UnsafeBufferPointer(rebasing:  cw.dropLast(minBase - 1)),
+                        around: ccw.first!, indices: &indices)
+            }
+            //  cw     ×        ×-------→
+            //       / | \   +   \ / \ / \
+            //  ccw ×------       --------→
+            else
+            {
+                meshFan(ccw: UnsafeBufferPointer(rebasing: ccw.dropLast(minBase - 1)),
+                        around: cw.first!, indices: &indices)
+            }
+        }
+    }
+
+    // meshes the given trapezoid
+    //      cw ×-----→
+    //        / \ | / \
+    //   ccw ×---------→
+
+    // cw and ccw each contain at least two indices to distinct points and
+    // have the same count
+    static
+    func meshParallelogram<Index>(cw:UnsafeBufferPointer<Index>,
+        ccw:UnsafeBufferPointer<Index>, points:UnsafePointer<Math<F>.V3>,
+        indices:inout [Index]) where Index:BinaryInteger
+    {
+        // all the shortest diagonals in the trapezoid cells begin to lean one
+        // way until a certain zero-indexed cell floor(i) where they begin to lean
+        // the opposite direction.
+
+        //                  i
+        //           0  1   2  3  (n = 4)
+        //       a ↗---×--×———×--→ v
+        //        / \ / \ | / | / \
+        //       ○---×----×———×----→ u
+        //        0 ..< i , i ..< n
+
+        // where i = 1 / 2 - (an · (u + v)) / (|v|^2 - |u|^2)
+        let n:Int        = cw.count - 1,
+            u:Math<F>.V3 = Math.sub(points[Int(ccw[n])], points[Int(ccw[0])]),
+            v:Math<F>.V3 = Math.sub(points[Int( cw[n])], points[Int( cw[0])]),
+            a:Math<F>.V3 = Math.sub(points[Int( cw[0])], points[Int(ccw[0])])
+
+        // if |v| = |u|, either there is no crossover point i or every point is
+        // a crossover point. if we got 0 in the numerator, it’s the second case.
+        let d:F     = Math.eusq(v) - Math.eusq(u),
+            ortho:F = Math.dot(a, Math.add(u, v)),
+            diagonals1:(cw:F, ccw:F),
+            i:Int
+        if d != 0
+        {
+            let k:Int = min(Int(0.5 - F(n) * ortho / d), n)
+            i = k > 0 ? k : n
+        }
+        else
+        {
+            i = n
+        }
+
+        diagonals1.cw  = Math.eusq(Math.sub(points[Int(ccw[i])], points[Int( cw[0])]))
+        diagonals1.ccw = Math.eusq(Math.sub(points[Int( cw[i])], points[Int(ccw[0])]))
+
+        meshParallelogram(cw: UnsafeBufferPointer(rebasing:  cw[0 ... i]),
+                         ccw: UnsafeBufferPointer(rebasing: ccw[0 ... i]),
+            diagonals: diagonals1, indices: &indices)
+
+        guard i < n
+        else
+        {
+            return
+        }
+
+        let diagonals2:(cw:F, ccw:F)
+        diagonals2.cw  = Math.eusq(Math.sub(points[Int(ccw[n])], points[Int( cw[i])]))
+        diagonals2.ccw = Math.eusq(Math.sub(points[Int( cw[n])], points[Int(ccw[i])]))
+
+        meshParallelogram(cw: UnsafeBufferPointer(rebasing:  cw[i ... n]),
+                         ccw: UnsafeBufferPointer(rebasing: ccw[i ... n]),
+            diagonals: diagonals2, indices: &indices)
+    }
+    // meshes the given parallelogram
+    //      cw ×-------→
+    //        / \ / \ /
+    //   ccw ×-------→
+
+    // cw and ccw each contain at least two indices to distinct points and
+    // have the same count
+    static
+    func meshParallelogram<Index>(cw:UnsafeBufferPointer<Index>,
+        ccw:UnsafeBufferPointer<Index>, diagonals:(cw:F, ccw:F),
+        indices:inout [Index])
+    {
+        // we have two options for skinning the parallelogram, which we choose based
+        // on the shortest diagonal of the parallelogram
+
+        // option 1
+        //    cw ×-------→
+        //      / \ / \ /
+        // ccw ×-------→
+
+        // option 2
+        //  cw ×-------→
+        //      \ / \ / \
+        //   ccw ×-------→
+
+        if diagonals.cw < diagonals.ccw
+        {
+            for i:Int in 1 ..< ccw.count
+            {
+                indices.append(vector: (ccw[i - 1], ccw[i    ],  cw[i - 1]))
+                indices.append(vector: ( cw[i    ],  cw[i - 1], ccw[i    ]))
+            }
+        }
+        else
+        {
+            for i:Int in 1 ..< ccw.count
+            {
+                indices.append(vector: (ccw[i - 1], ccw[i    ],  cw[i    ]))
+                indices.append(vector: ( cw[i    ],  cw[i - 1], ccw[i - 1]))
+            }
+        }
+    }
+
+    // meshes the given clockwise points in a fan
+    //  cw ×-----→
+    //      \ | /
+    //        ×
+    static
+    func meshFan<Index>(cw:UnsafeBufferPointer<Index>, around center:Index,
+        indices:inout [Index])
+    {
+        for i:Int in 1 ..< cw.count
+        {
+            indices.append(vector: (cw[i], cw[i - 1], center))
+        }
+    }
+
+    // meshes the given counterclockwise points in a fan
+    //        ×
+    //      / | \
+    // ccw ×-----→
+    static
+    func meshFan<Index>(ccw:UnsafeBufferPointer<Index>, around center:Index,
+        indices:inout [Index])
+    {
+        for i:Int in 1 ..< ccw.count
+        {
+            indices.append(vector: (ccw[i - 1], ccw[i], center))
+        }
+    }
+}
+
 // TODO: make this a generic FloatingPoint struct
 struct VoronoiSphere
 {
