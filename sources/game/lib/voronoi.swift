@@ -5,9 +5,189 @@ import func Glibc.atan2
 
 enum Tesselate<F> where F:BinaryFloatingPoint
 {
+    // first element of fan is the center, the rest are the outline
+    static
+    func tesselate<Index>(fan:CountableRange<Index>, points:inout [Math<F>.V3],
+        resolution:F) -> [Index] where Index:BinaryInteger
+    {
+        let center:Index   = fan.first!
+        //   counterclockwise
+        //         ←———
+        //        ······
+        //  rays[i] ↘  ↓
+        //             × center
+
+        //        startIndices
+        //             ·
+        //             ↓
+        //             ×
+        let (startLength, startIndices):(F, [Index]) =
+            subdivide((center + 1, center), resolution: resolution, points: &points)
+
+        var prevLength:F         = startLength,
+            prevIndices:[Index]  = startIndices
+        var indices:[Index]      = []
+        for i:Index in fan.dropFirst(2)
+        {
+            //       [i] ···
+            //      ray ↘  ↓ prev
+            //             ×
+            let (rayLength, rayIndices):(F, [Index]) =
+                subdivide((i, center), resolution: resolution, points: &points)
+
+            tesselateLambda( cw: (prevLength, prevIndices),
+                            ccw: (rayLength, rayIndices),
+                resolution: resolution, points: &points, indices: &indices)
+
+            (prevLength, prevIndices) = (rayLength, rayIndices)
+        }
+        //         ·····   fan.last
+        //        · ↘  ↓  ↙ ·
+        //       ·---→ × ←---·
+        //        · ↗  ↑  ↖ ·
+        //         ·········
+        tesselateLambda( cw: (prevLength, prevIndices),
+                        ccw: (startLength, startIndices),
+            resolution: resolution, points: &points, indices: &indices)
+
+        return indices
+    }
+
+    // takes two joined sides and fills it in with a mesh, including the open side
+    private static
+    func tesselateLambda<Index>( cw  cwRay:(length:F, indices:[Index]),
+                                ccw ccwRay:(length:F, indices:[Index]),
+        resolution:F, points:inout [Math<F>.V3], indices:inout [Index])
+        where Index:BinaryInteger
+    {
+        //              open
+        //            + ···· ×
+        //     ccwRay ↓   ↙  cwRay
+        //            ·
+        let openLength:F = Math.length(Math.sub(points[Int( cwRay.indices[0])],
+                                                points[Int(ccwRay.indices[0])]))
+
+        let shortest:[Index],
+            cw:[Index],
+            ccw:[Index]
+        //              cw
+        //           ↑ ———→
+        //  shortest |  ↗ ccw
+
+        if openLength < ccwRay.length
+        {
+            //              open                    shortest
+            //            · ···· ·                  · ———→
+            //     ccwRay ↓   ↙  cwRay  ≡       ccw ↓  ↙  cw
+            //            ·                         ·
+            if openLength < cwRay.length
+            {
+                cw       =  cwRay.indices
+                ccw      = ccwRay.indices
+                shortest = subdivide((ccwRay.indices[0], cwRay.indices[0]),
+                    n: subdivisions(openLength, resolution: resolution), points: &points)
+            }
+            //              open                     ccw
+            //            · ···· ·                  ←———— ·
+            //     ccwRay ↓   ↙  cwRay  ≡        cw ↑  ↙  shortest
+            //            ·                         ·
+            else
+            {
+                shortest = cwRay.indices
+                cw       = ccwRay.indices.reversed()
+                ccw      = subdivide((cwRay.indices[0], ccwRay.indices[0]),
+                    n: subdivisions(openLength, resolution: resolution), points: &points)
+            }
+        }
+        else
+        {
+            //              open                      cw
+            //            · ···· ·                  · ———→
+            //     ccwRay ↓   ↙  cwRay  ≡  shortest ↑  ↗  ccw
+            //            ·                         ·
+            if ccwRay.length < cwRay.length
+            {
+                ccw      =  cwRay.indices.reversed()
+                shortest = ccwRay.indices.reversed()
+                cw       = subdivide((ccwRay.indices[0], cwRay.indices[0]),
+                    n: subdivisions(openLength, resolution: resolution), points: &points)
+            }
+            //              open                     ccw
+            //            · ···· ·                  ←———— ·
+            //     ccwRay ↓   ↙  cwRay  ≡        cw ↑  ↙  shortest
+            //            ·                         ·
+            else
+            {
+                shortest = cwRay.indices
+                cw       = ccwRay.indices.reversed()
+                ccw      = subdivide((cwRay.indices[0], ccwRay.indices[0]),
+                    n: subdivisions(openLength, resolution: resolution), points: &points)
+            }
+        }
+
+        // if n ≥ m, there exists an onto function from the points on the longest
+        // side of the triangle to the points on the second-longest side of the
+        // triangle.
+        indices.append(contentsOf: bridgeTriangle(cw: cw, ccw: ccw, base: shortest,
+            resolution: resolution, points: &points))
+    }
+
+    // returns the number of points in the subdivision that produces no fragments
+    // longer than resolution. if no subdivisions happen it returns 2 (for the two
+    // original endpoints)
+    private static
+    func subdivisions(_ length:F, resolution:F) -> Int
+    {
+        return Int((length / resolution).rounded(.up)) + 1
+    }
+
+    // subdivides the given edge such that no component is longer than resolution,
+    // adding points to the input `points` vector if needed
+    private static
+    func subdivide<Index>(_ edge:(Index, Index), resolution:F, points:inout [Math<F>.V3])
+        -> (length:F, indices:[Index]) where Index:BinaryInteger
+    {
+        let length:F = Math.length(Math.sub(points[Int(edge.1)], points[Int(edge.0)])),
+            indices:[Index] = subdivide(edge,
+                n: subdivisions(length, resolution: resolution), points: &points)
+
+        return (length, indices)
+    }
+
+    // creates n - 2 new points evenly spaced between edge.0 and edge.1, returning
+    // an n-length list of all the points along the edge, adding points to the
+    // input `points` vector if needed
+    private static
+    func subdivide<Index>(_ edge:(Index, Index), n:Int, points:inout [Math<F>.V3])
+        -> [Index] where Index:BinaryInteger
+    {
+        guard n > 2
+        else
+        {
+            return [edge.0, edge.1]
+        }
+
+        let v1:Math<F>.V3 = points[Int(edge.0)],
+            v2:Math<F>.V3 = points[Int(edge.1)]
+        var indices:[Index] = [edge.0]
+            indices.reserveCapacity(n)
+
+        let ustep:F = 1 / F(n - 1)
+        var index:Index = Index(points.count)
+        for i:Int in 1 ..< n - 1
+        {
+            indices.append(index)
+            points.append(Math.lerp(v1, v2, F(i) * ustep))
+            index += 1
+        }
+
+        indices.append(edge.1)
+        return indices
+    }
+
     static
     func tesselate<Index>(_ triangle:(Math<F>.V3, Math<F>.V3, Math<F>.V3),
-        maxUnit:F)
+        resolution:F)
         -> (vertexData:[F], indices:[Index])
         where Index:BinaryInteger, Index.Stride:SignedInteger
     {
@@ -40,11 +220,11 @@ enum Tesselate<F> where F:BinaryFloatingPoint
             if lengths.2 < lengths.0
             {
                 shortest = subdivide((0, 2),
-                    n: subdivisions(lengths.2, maxUnit: maxUnit), points: &points)
+                    n: subdivisions(lengths.2, resolution: resolution), points: &points)
                 cw       = subdivide((2, 1),
-                    n: subdivisions(lengths.1, maxUnit: maxUnit), points: &points)
+                    n: subdivisions(lengths.1, resolution: resolution), points: &points)
                 ccw      = subdivide((0, 1),
-                    n: subdivisions(lengths.0, maxUnit: maxUnit), points: &points)
+                    n: subdivisions(lengths.0, resolution: resolution), points: &points)
             }
             // side 0 is the shortest side
             //              cw
@@ -54,11 +234,11 @@ enum Tesselate<F> where F:BinaryFloatingPoint
             else
             {
                 shortest    = subdivide((1, 0),
-                    n: subdivisions(lengths.0, maxUnit: maxUnit), points: &points)
+                    n: subdivisions(lengths.0, resolution: resolution), points: &points)
                 cw          = subdivide((0, 2),
-                    n: subdivisions(lengths.2, maxUnit: maxUnit), points: &points)
+                    n: subdivisions(lengths.2, resolution: resolution), points: &points)
                 ccw         = subdivide((1, 2),
-                    n: subdivisions(lengths.1, maxUnit: maxUnit), points: &points)
+                    n: subdivisions(lengths.1, resolution: resolution), points: &points)
             }
         }
         else
@@ -71,11 +251,11 @@ enum Tesselate<F> where F:BinaryFloatingPoint
             if lengths.1 < lengths.0
             {
                 shortest    = subdivide((2, 1),
-                    n: subdivisions(lengths.1, maxUnit: maxUnit), points: &points)
+                    n: subdivisions(lengths.1, resolution: resolution), points: &points)
                 cw          = subdivide((1, 0),
-                    n: subdivisions(lengths.0, maxUnit: maxUnit), points: &points)
+                    n: subdivisions(lengths.0, resolution: resolution), points: &points)
                 ccw         = subdivide((2, 0),
-                    n: subdivisions(lengths.2, maxUnit: maxUnit), points: &points)
+                    n: subdivisions(lengths.2, resolution: resolution), points: &points)
             }
             // side 0 is the shortest side
             //              cw
@@ -85,11 +265,11 @@ enum Tesselate<F> where F:BinaryFloatingPoint
             else
             {
                 shortest    = subdivide((1, 0),
-                    n: subdivisions(lengths.0, maxUnit: maxUnit), points: &points)
+                    n: subdivisions(lengths.0, resolution: resolution), points: &points)
                 cw          = subdivide((0, 2),
-                    n: subdivisions(lengths.2, maxUnit: maxUnit), points: &points)
+                    n: subdivisions(lengths.2, resolution: resolution), points: &points)
                 ccw         = subdivide((1, 2),
-                    n: subdivisions(lengths.1, maxUnit: maxUnit), points: &points)
+                    n: subdivisions(lengths.1, resolution: resolution), points: &points)
             }
         }
 
@@ -97,7 +277,7 @@ enum Tesselate<F> where F:BinaryFloatingPoint
         // side of the triangle to the points on the second-longest side of the
         // triangle.
         let bridged:[Index] = bridgeTriangle(cw: cw, ccw: ccw, base: shortest,
-            maxUnit: maxUnit, points: &points)
+            resolution: resolution, points: &points)
 
         var vertexData:[F] = []
             vertexData.reserveCapacity(points.count * 3)
@@ -114,10 +294,10 @@ enum Tesselate<F> where F:BinaryFloatingPoint
     //       ↑ ———→
     //  base |  ↗ ccwBoundary
 
-    static
+    private static
     func bridgeTriangle<Index>(cw cwBoundary:[Index], ccw ccwBoundary:[Index],
-    base:[Index], maxUnit:F, points:inout [Math<F>.V3]) -> [Index]
-        where Index:BinaryInteger, Index.Stride:SignedInteger
+        base:[Index], resolution:F, points:inout [Math<F>.V3]) -> [Index]
+        where Index:BinaryInteger
     {
         //  cwBoundary: v0 ——— v1 ——— v2 ———— v3 —— ··· —— vm  (m = count - 1)
         // ccwBoundary: u0 —— u2 —— u3 —— u4 —— u5 — ··· — un  (n = count - 1)
@@ -145,14 +325,9 @@ enum Tesselate<F> where F:BinaryFloatingPoint
 
         for i:Int in 1 ..< near.count - 1
         {
-
             let currentFar:Int = bridge(i, of: near.count - 1, to: far.count - 1)
-
-            let edge:(Index, Index) = (near[i], far[currentFar])
-            let bridgeLength:F = Math.length(Math.sub(points[Int(edge.1)],
-                                                      points[Int(edge.0)]))
-            let currentBridge:[Index] = subdivide(edge,
-                n: subdivisions(bridgeLength, maxUnit: maxUnit), points: &points)
+            let currentBridge:[Index] = subdivide((near[i], far[currentFar]),
+                    resolution: resolution, points: &points).indices
 
             points.withUnsafeBufferPointer
             {
@@ -210,7 +385,7 @@ enum Tesselate<F> where F:BinaryFloatingPoint
         return indices
     }
 
-    static
+    private static
     func bridge(_ i:Int, of near:Int, to far:Int) -> Int
     {
         // never allow a bridge to land on the last point (the vertex
@@ -219,48 +394,7 @@ enum Tesselate<F> where F:BinaryFloatingPoint
         // if halfIndex is odd, we round up, otherwise we round down
         // index     : [0       ][1       ][2       ][3       ][4
         // half index: [0  ][1  ][2  ][3  ][4  ][5  ][6  ][7  ]
-        print("\(i) → \(Double(i) * Double(far) / Double(near)) [\((halfIndex + halfIndex & 1) >> 1)]")
         return min((halfIndex + halfIndex & 1) >> 1, far - 1)
-    }
-
-    // returns the number of points in the subdivision that produces no fragments
-    // longer than maxUnit. if no subdivisions happen it returns 2 (for the two
-    // original endpoints)
-    static
-    func subdivisions(_ length:F, maxUnit:F) -> Int
-    {
-        return Int((length / maxUnit).rounded(.up)) + 1
-    }
-
-    // creates n - 2 new points evenly spaced between edge.0 and edge.1, returning
-    // an n-length list of all the points along the edge, adding points to the
-    // input `points` vector if needed
-    static
-    func subdivide<Index>(_ edge:(Index, Index), n:Int, points:inout [Math<F>.V3])
-        -> [Index] where Index:BinaryInteger
-    {
-        guard n > 2
-        else
-        {
-            return [edge.0, edge.1]
-        }
-
-        let v1:Math<F>.V3 = points[Int(edge.0)],
-            v2:Math<F>.V3 = points[Int(edge.1)]
-        var indices:[Index] = [edge.0]
-            indices.reserveCapacity(n)
-
-        let ustep:F = 1 / F(n - 1)
-        var index:Index = Index(points.count)
-        for i:Int in 1 ..< n - 1
-        {
-            indices.append(index)
-            points.append(Math.lerp(v1, v2, F(i) * ustep))
-            index += 1
-        }
-
-        indices.append(edge.1)
-        return indices
     }
 
     // meshes the given triangular fill. we can’t just glue the vertex onto cw
@@ -271,11 +405,10 @@ enum Tesselate<F> where F:BinaryFloatingPoint
     //   ccw ×-------→ --o
 
     // cw and ccw each contain at least two indices to distinct points
-    static
+    private static
     func meshTriangle<Index>(vertex:Index, cw:UnsafeBufferPointer<Index>,
         ccw:UnsafeBufferPointer<Index>, points:UnsafePointer<Math<F>.V3>,
-        indices:inout [Index])
-        where Index:BinaryInteger
+        indices:inout [Index]) where Index:BinaryInteger
     {
         // lop off the pointy bit and send the rest to meshQuad
         indices.append(vector: (ccw.last!, vertex, cw.last!))
@@ -288,11 +421,10 @@ enum Tesselate<F> where F:BinaryFloatingPoint
     //   ccw ×-------→
 
     // cw and ccw each contain at least two indices to distinct points
-    static
+    private static
     func meshQuad<Index>(cw:UnsafeBufferPointer<Index>,
         ccw:UnsafeBufferPointer<Index>, points:UnsafePointer<Math<F>.V3>,
-        indices:inout [Index])
-        where Index:BinaryInteger
+        indices:inout [Index]) where Index:BinaryInteger
     {
         // since cw and ccw may not have the same number of points, two
         // “maximum parallelograms” can be carved out of them
@@ -381,14 +513,14 @@ enum Tesselate<F> where F:BinaryFloatingPoint
         }
     }
 
-    // meshes the given trapezoid
+    // meshes the given parallelogram
     //      cw ×-----→
     //        / \ | / \
     //   ccw ×---------→
 
     // cw and ccw each contain at least two indices to distinct points and
     // have the same count
-    static
+    private static
     func meshParallelogram<Index>(cw:UnsafeBufferPointer<Index>,
         ccw:UnsafeBufferPointer<Index>, points:UnsafePointer<Math<F>.V3>,
         indices:inout [Index]) where Index:BinaryInteger
@@ -454,7 +586,7 @@ enum Tesselate<F> where F:BinaryFloatingPoint
 
     // cw and ccw each contain at least two indices to distinct points and
     // have the same count
-    static
+    private static
     func meshParallelogram<Index>(cw:UnsafeBufferPointer<Index>,
         ccw:UnsafeBufferPointer<Index>, diagonals:(cw:F, ccw:F),
         indices:inout [Index])
@@ -494,7 +626,7 @@ enum Tesselate<F> where F:BinaryFloatingPoint
     //  cw ×-----→
     //      \ | /
     //        ×
-    static
+    private static
     func meshFan<Index>(cw:UnsafeBufferPointer<Index>, around center:Index,
         indices:inout [Index])
     {
@@ -508,7 +640,7 @@ enum Tesselate<F> where F:BinaryFloatingPoint
     //        ×
     //      / | \
     // ccw ×-----→
-    static
+    private static
     func meshFan<Index>(ccw:UnsafeBufferPointer<Index>, around center:Index,
         indices:inout [Index])
     {
@@ -533,61 +665,45 @@ struct VoronoiSphere
         vertices:[Math<Float>.V3]
 
     func vertexArrays<Index>()
-        -> (vertexData:[Float], indices:[Index], edgesOffset:Int, facesOffset:Int)
+        -> (vertexData:[Float], indices:[Index], facesOffset:Int)
         where Index:BinaryInteger, Index.Stride:SignedInteger
     {
         var vertexData:[Float] = [],
             centers:[Index]    = [],
-            edges:[Index]      = [],
             faces:[Index]      = []
 
-        var base:Index = 0
-        var _prng = RandomXorshift(seed: 1389)
+        var base:Index = 0,
+            _prng      = RandomXorshift(seed: 1389)
         for cell:Cell in self.cells
         {
             // generate the vertex buffer data
             // we split vertices creating duplicates per face so that
             // they can be colored differently
 
-            //let color:Math<Float>.V3 = Math.scale(Math.add(center, (1, 1, 1)), by: 0.5)
+            var subMeshPoints:[Math<Float>.V3] =
+                [cell.center] + cell.vertexIndices.map{ self.vertices[$0] }
+
+            centers.append(base)
+            for i:Index in Tesselate.tesselate(fan: 0 ..< Index(subMeshPoints.count),
+        points: &subMeshPoints, resolution: 0.05)
+            {
+                faces.append(base + i)
+            }
+
             let color:Math<Float>.V3 = (_prng.generateFloat(),
                                         _prng.generateFloat(),
                                         _prng.generateFloat())
-            vertexData.append(vector: cell.center)
-            vertexData.append(vector: color)
-            for vertexIndex:Int in cell.vertexIndices
+
+            for point:Math<Float>.V3 in subMeshPoints
             {
-                vertexData.append(vector: self.vertices[vertexIndex])
+                vertexData.append(vector: Math.normalize(point))
                 vertexData.append(vector: color)
             }
 
-            // generate the element buffer data
-            let n:Index = Index(cell.vertexIndices.count)
-            for i:Index in 1 ..< n
-            {
-                faces.append(base)
-                faces.append(base + i)
-                faces.append(base + i + 1)
-
-                edges.append(base + i)
-                edges.append(base + i + 1)
-            }
-            faces.append(base)
-            faces.append(base + n)
-            faces.append(base + 1)
-
-            edges.append(base + n)
-            edges.append(base + 1)
-
-            centers.append(base)
-
-            base += 1 + n
+            base += Index(subMeshPoints.count)
         }
 
-        return (vertexData,
-                centers + edges + faces,
-                centers.count,
-                centers.count + edges.count)
+        return (vertexData, centers + faces, centers.count)
     }
 
     static

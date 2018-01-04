@@ -35,20 +35,20 @@ struct View3D:GameScene
     var __debugOutput__:[String] = [],
         __debugPanel__:Billboard
 
-    /*
+
     private
     let _voronoiVBO:GL.Buffer,
         _voronoiEBO:GL.Buffer,
         _voronoiVAO:GL.VertexArray,
         _voronoiSiteCount:Int,
-        _voronoiFaceOffset:Int,
-        _voronoiFaceCount:Int
-    */
+        _voronoiFacesElemsCount:Int
+    /*
     private
     var _triangleVBO:GL.Buffer,
         _triangleEBO:GL.Buffer,
         _triangleVAO:GL.VertexArray,
         _triangleElemsCount:Int
+    */
 
     private
     var fpsCounter:Billboard,
@@ -78,22 +78,20 @@ struct View3D:GameScene
         self.__debugPanel__.context.selectFontFace("Fira Mono")
         self.__debugPanel__.context.setFontSize(13)
 
-        /*
         var points:[Math<Float>.V3] = []
-            points.reserveCapacity(600)
+            points.reserveCapacity(100)
         var prng = RandomXorshift(seed: 2)
-        for _ in 0 ..< 600
+        for _ in 0 ..< 4
         {
             points.append(prng.generateUnitFloat3())
         }
 
         let voronoiSphere = VoronoiSphere.generate(fromNormalizedPoints: points)
-        let (vertexData, indices, edgesOffset, facesOffset):([Float], [GL.UInt], Int, Int) =
+        let (vertexData, indices, facesOffset):([Float], [GL.UInt], Int) =
             voronoiSphere.vertexArrays()
 
-        self._voronoiSiteCount  = edgesOffset
-        self._voronoiFaceOffset = facesOffset
-        self._voronoiFaceCount  = indices.count - facesOffset
+        self._voronoiSiteCount       = facesOffset
+        self._voronoiFacesElemsCount = indices.count - facesOffset
 
         self._voronoiVBO = GL.Buffer.generate()
         self._voronoiEBO = GL.Buffer.generate()
@@ -113,44 +111,56 @@ struct View3D:GameScene
                 self._voronoiVAO.unbind()
             }
         }
-        */
-        let (vertexData, indices):([Float], [GL.UInt]) =
-            Tesselate.tesselate(((-0.8, -1.6, 0), (0.8, 0.7, 0), (0.2, 1.9, 0)), maxUnit: 0.6)
+
+        /*
+        var tesselation:(points:[Math<Float>.V3], indices:[GL.UInt])
+
+        tesselation.points  = [(0.1, 0.1, 0), (2, 0.1, 0), (0.4, 1.3, 0), (-0.1, 1.4, 0),
+            (-1.4, 0.7, 0), (-1.1, -1.0, 0), (-0.4, -1.3, 0), (0.8, -0.9, 0)]
+        tesselation.indices =
+            Tesselate.tesselate(fan: 0 ..< GL.UInt(tesselation.points.count),
+                points: &tesselation.points, resolution: 0.6)
+        //let (vertexData, indices):([Float], [GL.UInt]) =
+        //    Tesselate.tesselate(((-0.8, -1.6, 0), (0.8, 0.7, 0), (0.2, 1.9, 0)), resolution: 0.6)
 
         self._triangleVBO = GL.Buffer.generate()
         self._triangleEBO = GL.Buffer.generate()
         self._triangleVAO = GL.VertexArray.generate()
-        self._triangleElemsCount = indices.count
+        self._triangleElemsCount = tesselation.indices.count
 
         self._triangleVBO.bind(to: .array)
         {
-            GL.Buffer.Target.array.data(vertexData, usage: .staticDraw)
+            tesselation.points.withUnsafeBufferPointer
+            {
+                GL.Buffer.Target.array.data(UnsafeRawBufferPointer($0), usage: .staticDraw)
+            }
 
             self._triangleVAO.bind()
             GL.setVertexAttributeLayout(.float(.float3, false))
 
             self._triangleEBO.bind(to: .elementArray)
             {
-                GL.Buffer.Target.elementArray.data(indices, usage: .staticDraw)
+                GL.Buffer.Target.elementArray.data(tesselation.indices, usage: .staticDraw)
 
                 self._triangleVAO.unbind()
             }
         }
+        */
     }
 
     func destroy()
     {
         self.rig.destroy()
 
-        /*
         self._voronoiVBO.destroy()
         self._voronoiEBO.destroy()
         self._voronoiVAO.destroy()
-        */
 
+        /*
         self._triangleVBO.destroy()
         self._triangleEBO.destroy()
         self._triangleVAO.destroy()
+        */
 
         self.fpsCounter.destroy()
 
@@ -166,7 +176,6 @@ struct View3D:GameScene
         glEnable(GL.LINE_SMOOTH)
         glPolygonMode(face: GL.FRONT_AND_BACK, mode: self.renderMode)
 
-        /*
         Shaders.vertcolor.activate()
 
         glUniformMatrix4fv( location: Shaders.vertcolor.uniforms[0],
@@ -174,18 +183,18 @@ struct View3D:GameScene
                             transpose: false,
                             value: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1])
 
-        self._voronoiVAO.draw(start: self._voronoiFaceOffset, count: self._voronoiFaceCount, mode: GL.TRIANGLES)
+        self._voronoiVAO.draw(start: self._voronoiSiteCount, count: self._voronoiFacesElemsCount, mode: GL.TRIANGLES)
 
         glPointSize(2)
-        */
+
         Shaders.solid.activate()
         glUniformMatrix4fv( location: Shaders.solid.uniforms[0],
                             count: 1,
                             transpose: false,
                             value: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1])
         glUniform4f(location: Shaders.solid.uniforms[1], v0: 1.0, v1: 1.0, v2: 1.0, v3: 1.0)
-        //self._voronoiVAO.draw(count: self._voronoiSiteCount, mode: GL.POINTS)
-        self._triangleVAO.draw(count: self._triangleElemsCount, mode: GL.TRIANGLES)
+        self._voronoiVAO.draw(count: self._voronoiSiteCount, mode: GL.POINTS)
+        //self._triangleVAO.draw(count: self._triangleElemsCount, mode: GL.TRIANGLES)
 
         self.drawText(dt: dt)
     }
