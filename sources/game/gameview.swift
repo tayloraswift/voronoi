@@ -2,20 +2,24 @@ import OpenGL
 import MaxPNG
 import func Glibc.time
 
-enum Shaders
+enum Programs
 {
     static
-    let billboard = Shader(vertex_file  : "shaders/ui.vert",
-                           fragment_file: "shaders/ui.frag",
-                           textures     : ["img"])!
+    let billboard   = Program.create(shaders:
+            [("shaders/ui.vert", .vertex), ("shaders/ui.frag", .fragment)],
+            textures: ["img"])!
     static
-    let solid     = Shader(vertex_file  : "shaders/solid.vert",
-                           fragment_file: "shaders/solid.frag",
-                           uniforms     : ["matrix_model", "solidColor"])!
+    let solid       = Program.create(shaders:
+            [("shaders/solid.vert", .vertex), ("shaders/solid.frag", .fragment)],
+            uniforms: ["matrix_model", "solidColor"])!
     static
-    let vertcolor = Shader(vertex_file  : "shaders/vertcolor.vert",
-                           fragment_file: "shaders/vertcolor.frag",
-                           uniforms     : ["matrix_model"])!
+    let vertcolor   = Program.create(shaders:
+            [("shaders/vertcolor.vert", .vertex), ("shaders/vertcolor.frag", .fragment)],
+            uniforms: ["matrix_model"])!
+    static
+    let spherecolor = Program.create(shaders:
+            [("shaders/spherecolor.vert", .vertex), ("shaders/spherecolor.frag", .fragment)],
+            uniforms: ["matrix_model", "sun"])!
 }
 
 extension BinaryFloatingPoint
@@ -42,18 +46,11 @@ struct View3D:GameScene
         _voronoiVAO:GL.VertexArray,
         _voronoiSiteCount:Int,
         _voronoiFacesElemsCount:Int
-    /*
-    private
-    var _triangleVBO:GL.Buffer,
-        _triangleEBO:GL.Buffer,
-        _triangleVAO:GL.VertexArray,
-        _triangleElemsCount:Int
-    */
 
     private
     var fpsCounter:Billboard,
         renderMode:GL.Enum = GL.FILL,
-        zoomLevel:Int = 6,
+        zoomLevel:Int = 9,
 
         rig:GLCameraRig,
 
@@ -67,7 +64,7 @@ struct View3D:GameScene
                                         vscreen: Math.scale((-0.5, 0.5), by: Float(frame.y)),
                                         z: (-400, -0.10),
                                         scale: 0.0001)
-        self.rig.jump(pivot: (0, 0, 0), angle: (0, 0), distance: 3.6)
+        self.rig.jump(pivot: (0, 0, 0), angle: (2.21, 1.42), distance: 4.05)
 
         self.fpsCounter = Billboard(at: (-1, 1), size: (820, -30), frame: frame)
         // yes this is a horrible way to draw cairo text but whatever
@@ -81,7 +78,7 @@ struct View3D:GameScene
         var points:[Math<Float>.V3] = []
             points.reserveCapacity(100)
         var prng = RandomXorshift(seed: 2)
-        for _ in 0 ..< 4
+        for _ in 0 ..< 100
         {
             points.append(prng.generateUnitFloat3())
         }
@@ -111,41 +108,6 @@ struct View3D:GameScene
                 self._voronoiVAO.unbind()
             }
         }
-
-        /*
-        var tesselation:(points:[Math<Float>.V3], indices:[GL.UInt])
-
-        tesselation.points  = [(0.1, 0.1, 0), (2, 0.1, 0), (0.4, 1.3, 0), (-0.1, 1.4, 0),
-            (-1.4, 0.7, 0), (-1.1, -1.0, 0), (-0.4, -1.3, 0), (0.8, -0.9, 0)]
-        tesselation.indices =
-            Tesselate.tesselate(fan: 0 ..< GL.UInt(tesselation.points.count),
-                points: &tesselation.points, resolution: 0.6)
-        //let (vertexData, indices):([Float], [GL.UInt]) =
-        //    Tesselate.tesselate(((-0.8, -1.6, 0), (0.8, 0.7, 0), (0.2, 1.9, 0)), resolution: 0.6)
-
-        self._triangleVBO = GL.Buffer.generate()
-        self._triangleEBO = GL.Buffer.generate()
-        self._triangleVAO = GL.VertexArray.generate()
-        self._triangleElemsCount = tesselation.indices.count
-
-        self._triangleVBO.bind(to: .array)
-        {
-            tesselation.points.withUnsafeBufferPointer
-            {
-                GL.Buffer.Target.array.data(UnsafeRawBufferPointer($0), usage: .staticDraw)
-            }
-
-            self._triangleVAO.bind()
-            GL.setVertexAttributeLayout(.float(.float3, false))
-
-            self._triangleEBO.bind(to: .elementArray)
-            {
-                GL.Buffer.Target.elementArray.data(tesselation.indices, usage: .staticDraw)
-
-                self._triangleVAO.unbind()
-            }
-        }
-        */
     }
 
     func destroy()
@@ -155,12 +117,6 @@ struct View3D:GameScene
         self._voronoiVBO.destroy()
         self._voronoiEBO.destroy()
         self._voronoiVAO.destroy()
-
-        /*
-        self._triangleVBO.destroy()
-        self._triangleEBO.destroy()
-        self._triangleVAO.destroy()
-        */
 
         self.fpsCounter.destroy()
 
@@ -176,25 +132,20 @@ struct View3D:GameScene
         glEnable(GL.LINE_SMOOTH)
         glPolygonMode(face: GL.FRONT_AND_BACK, mode: self.renderMode)
 
-        Shaders.vertcolor.activate()
-
-        glUniformMatrix4fv( location: Shaders.vertcolor.uniforms[0],
-                            count: 1,
-                            transpose: false,
-                            value: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1])
+        Programs.spherecolor.activate()
+        Programs.spherecolor.uniform(1, vec3: Math.normalize((-1, -1, 0)))
+        Programs.spherecolor.uniform(0,
+            mat4: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1])
 
         self._voronoiVAO.draw(start: self._voronoiSiteCount, count: self._voronoiFacesElemsCount, mode: GL.TRIANGLES)
 
         glPointSize(2)
 
-        Shaders.solid.activate()
-        glUniformMatrix4fv( location: Shaders.solid.uniforms[0],
-                            count: 1,
-                            transpose: false,
-                            value: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1])
-        glUniform4f(location: Shaders.solid.uniforms[1], v0: 1.0, v1: 1.0, v2: 1.0, v3: 1.0)
+        Programs.solid.activate()
+        Programs.solid.uniform(0,
+            mat4: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1])
+        Programs.solid.uniform(1, vec4: (1, 1, 1, 1))
         self._voronoiVAO.draw(count: self._voronoiSiteCount, mode: GL.POINTS)
-        //self._triangleVAO.draw(count: self._triangleElemsCount, mode: GL.TRIANGLES)
 
         self.drawText(dt: dt)
     }
@@ -293,7 +244,7 @@ struct View3D:GameScene
         if axis
         {
             self.zoomLevel  = max(1, self.zoomLevel + (sign ? -1 : 1))
-            self.rig.dolly(distance: 0.1 * Float(self.zoomLevel * self.zoomLevel))
+            self.rig.dolly(distance: 0.05 * Float(self.zoomLevel * self.zoomLevel))
         }
     }
 

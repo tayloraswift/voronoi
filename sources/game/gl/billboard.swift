@@ -94,7 +94,7 @@ struct Billboard
 
     func draw()
     {
-        Shaders.billboard.activate()
+        Programs.billboard.activate()
         self.texture.activate(onUnit: 0, target: GL.TEXTURE_2D)
         self.vao.draw(count: 6)
         GLTexture.unbind(from: GL.TEXTURE_2D)

@@ -171,7 +171,7 @@ extension Double:_SwiftFloatingPoint
 enum Math<N>
 {
     typealias V2 = (x:N, y:N)
-    typealias V3 = (x:N, y:N, z:N)
+    typealias V3 = (x:N, y:N, z:N) 
 
     @inline(__always)
     static
