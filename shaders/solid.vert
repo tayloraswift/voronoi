@@ -1,8 +1,8 @@
 #version 330 core
 
-layout (location = 0) in vec3 position;
+layout(location = 0) in vec3 position;
 
-layout (std140) uniform CameraMatrixBlock
+layout(std140) uniform CameraMatrixBlock
 {
     mat4 proj;    // [0  ..< 64 ]
     mat4 view;    // [64 ..< 128] size = 128

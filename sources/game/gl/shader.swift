@@ -241,14 +241,7 @@ struct Program
     private static
     func printLog(step:CompilationStep)
     {
-        let message:String = log(step: step)
-        guard message != ""
-        else
-        {
-            return
-        }
-
-        print(message)
+        print(log(step: step), terminator: "")
     }
 
     private static

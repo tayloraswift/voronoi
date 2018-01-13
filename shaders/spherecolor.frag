@@ -1,6 +1,6 @@
 #version 330 core
 
-in V_OUT
+in Vertex
 {
     vec3 color;
     vec3 normal;

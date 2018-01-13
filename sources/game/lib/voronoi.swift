@@ -7,38 +7,44 @@ enum Tesselate<F> where F:BinaryFloatingPoint
 {
     // first element of fan is the center, the rest are the outline
     static
-    func tesselate<Index>(fan:CountableRange<Index>, points:inout [Math<F>.V3],
-        resolution:F) -> [Index] where Index:BinaryInteger
+    func tesselate<Index>(fanPoints:inout [Math<F>.V3], resolution:F)
+        -> (fill:[Index], outline:[Index], segments:[Int])
+        where Index:BinaryInteger, Index.Stride:SignedInteger
     {
-        let center:Index   = fan.first!
+        let perimeterCount:Index = Index(fanPoints.count) - 1
         //   counterclockwise
         //         ←———
-        //        ······
+        //        ······ [1]
         //  rays[i] ↘  ↓
-        //             × center
+        //             × [0]
 
         //        startIndices
-        //             ·
+        //             · [1]
         //             ↓
-        //             ×
+        //             × [0]
         let (startLength, startIndices):(F, [Index]) =
-            subdivide((center + 1, center), resolution: resolution, points: &points)
+            subdivide((1, 0), resolution: resolution, points: &fanPoints)
 
-        var prevLength:F         = startLength,
-            prevIndices:[Index]  = startIndices
-        var indices:[Index]      = []
-        for i:Index in fan.dropFirst(2)
+        var prevLength:F        = startLength,
+            prevIndices:[Index] = startIndices
+        var faces:[Index]       = [],
+            outline:[Index]     = [],
+            segments:[Int]      = [0]
+
+        for i:Index in 2 ... perimeterCount
         {
             //       [i] ···
             //      ray ↘  ↓ prev
             //             ×
             let (rayLength, rayIndices):(F, [Index]) =
-                subdivide((i, center), resolution: resolution, points: &points)
+                subdivide((i, 0), resolution: resolution, points: &fanPoints)
 
             tesselateLambda( cw: (prevLength, prevIndices),
-                            ccw: (rayLength, rayIndices),
-                resolution: resolution, points: &points, indices: &indices)
+                             ccw: (rayLength, rayIndices),
+                resolution: resolution, points: &fanPoints,
+                indices: &faces, outline: &outline)
 
+            segments.append(outline.count)
             (prevLength, prevIndices) = (rayLength, rayIndices)
         }
         //         ·····   fan.last
@@ -48,20 +54,22 @@ enum Tesselate<F> where F:BinaryFloatingPoint
         //         ·········
         tesselateLambda( cw: (prevLength, prevIndices),
                         ccw: (startLength, startIndices),
-            resolution: resolution, points: &points, indices: &indices)
-
-        return indices
+            resolution: resolution, points: &fanPoints,
+            indices: &faces, outline: &outline)
+        segments.append(outline.count)
+        return (faces, outline, segments)
     }
 
-    // takes two joined sides and fills it in with a mesh, including the open side
+    // takes two joined sides and fills it in with a mesh, including the open side.
+    // also fills in the missing edge vector, with points in counter-clockwise direction.
     private static
     func tesselateLambda<Index>( cw  cwRay:(length:F, indices:[Index]),
                                 ccw ccwRay:(length:F, indices:[Index]),
-        resolution:F, points:inout [Math<F>.V3], indices:inout [Index])
-        where Index:BinaryInteger
+        resolution:F, points:inout [Math<F>.V3], indices:inout [Index],
+        outline:inout [Index]) where Index:BinaryInteger
     {
         //              open
-        //            + ···· ×
+        //            · ···· ×
         //     ccwRay ↓   ↙  cwRay
         //            ·
         let openLength:F = Math.length(Math.sub(points[Int( cwRay.indices[0])],
@@ -76,52 +84,60 @@ enum Tesselate<F> where F:BinaryFloatingPoint
 
         if openLength < ccwRay.length
         {
-            //              open                    shortest
-            //            · ···· ·                  · ———→
-            //     ccwRay ↓   ↙  cwRay  ≡       ccw ↓  ↙  cw
-            //            ·                         ·
+            //             open                    shortest
+            //            ←———— ·                  · ———→
+            //     ccwRay ↓  ↙  cwRay  ≡       ccw ↓  ↙  cw
+            //            ·                        ·
             if openLength < cwRay.length
             {
                 cw       =  cwRay.indices
                 ccw      = ccwRay.indices
                 shortest = subdivide((ccwRay.indices[0], cwRay.indices[0]),
-                    n: subdivisions(openLength, resolution: resolution), points: &points)
+                        n: subdivisions(openLength, resolution: resolution), points: &points)
+
+                outline.append(contentsOf: shortest.reversed().dropLast())
             }
-            //              open                     ccw
-            //            · ···· ·                  ←———— ·
-            //     ccwRay ↓   ↙  cwRay  ≡        cw ↑  ↙  shortest
-            //            ·                         ·
+            //             open                     ccw
+            //            ←———— ·                  ←———— ·
+            //     ccwRay ↓  ↙  cwRay  ≡        cw ↑  ↙  shortest
+            //            ·                        ·
             else
             {
                 shortest = cwRay.indices
                 cw       = ccwRay.indices.reversed()
                 ccw      = subdivide((cwRay.indices[0], ccwRay.indices[0]),
-                    n: subdivisions(openLength, resolution: resolution), points: &points)
+                        n: subdivisions(openLength, resolution: resolution), points: &points)
+
+                outline.append(contentsOf: ccw.dropLast())
             }
         }
         else
         {
-            //              open                      cw
-            //            · ···· ·                  · ———→
-            //     ccwRay ↓   ↙  cwRay  ≡  shortest ↑  ↗  ccw
-            //            ·                         ·
+            //             open                      cw
+            //            ←———— ·                  · ———→
+            //     ccwRay ↓  ↙  cwRay  ≡  shortest ↑  ↗  ccw
+            //            ·                        ·
             if ccwRay.length < cwRay.length
             {
                 ccw      =  cwRay.indices.reversed()
                 shortest = ccwRay.indices.reversed()
                 cw       = subdivide((ccwRay.indices[0], cwRay.indices[0]),
-                    n: subdivisions(openLength, resolution: resolution), points: &points)
+                        n: subdivisions(openLength, resolution: resolution), points: &points)
+
+                outline.append(contentsOf: cw.reversed().dropLast())
             }
-            //              open                     ccw
-            //            · ···· ·                  ←———— ·
-            //     ccwRay ↓   ↙  cwRay  ≡        cw ↑  ↙  shortest
-            //            ·                         ·
+            //             open                     ccw
+            //            ←———— ·                  ←———— ·
+            //     ccwRay ↓  ↙  cwRay  ≡        cw ↑  ↙  shortest
+            //            ·                        ·
             else
             {
                 shortest = cwRay.indices
                 cw       = ccwRay.indices.reversed()
                 ccw      = subdivide((cwRay.indices[0], ccwRay.indices[0]),
-                    n: subdivisions(openLength, resolution: resolution), points: &points)
+                        n: subdivisions(openLength, resolution: resolution), points: &points)
+
+                outline.append(contentsOf: ccw.dropLast())
             }
         }
 
@@ -651,44 +667,101 @@ enum Tesselate<F> where F:BinaryFloatingPoint
     }
 }
 
-// TODO: make this a generic FloatingPoint struct
-struct VoronoiSphere
+struct VoronoiMap<Index> where Index:BinaryInteger, Index.Stride:SignedInteger
 {
-    struct Cell
+    struct UnitLoop
     {
-        let center:Math<Float>.V3,
-            vertexIndices:[Int]
+        // the node list has n + 1 elements. in general, the first element is
+        // not zero, since multiple loops could live in the same buffer
+        private
+        let nodes:[Int]
+
+        init(nodes:[Int])
+        {
+            self.nodes = nodes
+        }
+
+        subscript(_ i:Int) -> CountableRange<Int>
+        {
+            return self.nodes[i] ..< self.nodes[i + 1]
+        }
+
+        var full:CountableRange<Int>
+        {
+            return self.nodes[0] ..< self.nodes.last!
+        }
+
+        var adjacency:CountableRange<Int>
+        {
+            return self.nodes[0] ..< self.nodes.last! + 3
+        }
     }
 
+    // each loop of n vertices is represented by n + 3 indices to make the line
+    // adjacencies work
     private
-    var cells:[Cell],
-        vertices:[Math<Float>.V3]
+    let unitLoops:[UnitLoop],
+        indices:[Index]
 
-    func vertexArrays<Index>()
-        -> (vertexData:[Float], indices:[Index], facesOffset:Int)
-        where Index:BinaryInteger, Index.Stride:SignedInteger
+    private(set)
+    var centers:CountableRange<Int>,
+        faces:CountableRange<Int>
+
+    var selected:Int = 0
+
+    var selectedLoop:UnitLoop
     {
-        var vertexData:[Float] = [],
-            centers:[Index]    = [],
-            faces:[Index]      = []
+        return self.unitLoops[self.selected]
+    } 
+
+    var count:Int
+    {
+        return self.unitLoops.count
+    }
+
+    static
+    func generate(normalizedPoints points:[Math<Float>.V3])
+        -> (map:VoronoiMap, vertexBuffer:[Float], indexBuffer:[Index])
+    {
+        let globe = VoronoiSphere(normalizedPoints: points)
+
+        // we lay out the indexBuffer like this
+        // [ ··· unit loops ··· | centers | ········· faces ········· ]
+        // \____________________/
+        //           |
+        // the first portion corresponds to the stored self.indices buffer
+        // so we can use the same ranges to access them as we do to draw them
+        // with glDrawElements
+
+        // each unit loop looks like
+        // [ a1, a2 | b1, b2, b2, b4 | c1, c2, c3 | ... | z1, z2 | a1, a2, b1 ]
+
+        var vertexBuffer:[Float] = [],
+            unitLoops:[UnitLoop] = [],
+            indices:[Index]      = [],
+            centers:[Index]      = [],
+            faces:[Index]        = []
 
         var base:Index = 0,
             _prng      = RandomXorshift(seed: 1389)
-        for cell:Cell in self.cells
+        for cell:VoronoiSphere.Cell in globe.cells
         {
             // generate the vertex buffer data
             // we split vertices creating duplicates per face so that
             // they can be colored differently
 
             var subMeshPoints:[Math<Float>.V3] =
-                [cell.center] + cell.vertexIndices.map{ self.vertices[$0] }
+                [cell.center] + cell.edges.map{ globe.vertices[$0.index] }
 
+            let (fill, outline, segments):([Index], [Index], [Int]) =
+                Tesselate.tesselate(fanPoints: &subMeshPoints, resolution: 0.1)
+
+            unitLoops.append(UnitLoop(nodes: segments.map{ $0 + indices.count }))
+
+            indices.append(contentsOf: outline      .map{ $0 + base })
+            indices.append(contentsOf: outline[..<3].map{ $0 + base })
             centers.append(base)
-            for i:Index in Tesselate.tesselate(fan: 0 ..< Index(subMeshPoints.count),
-        points: &subMeshPoints, resolution: 0.05)
-            {
-                faces.append(base + i)
-            }
+            faces  .append(contentsOf: fill.map{ $0 + base })
 
             let color:Math<Float>.V3 = (_prng.generateFloat(),
                                         _prng.generateFloat(),
@@ -696,38 +769,133 @@ struct VoronoiSphere
 
             for point:Math<Float>.V3 in subMeshPoints
             {
-                vertexData.append(vector: Math.normalize(point))
-                vertexData.append(vector: color)
+                vertexBuffer.append(vector: Math.normalize(point))
+                vertexBuffer.append(vector: color)
             }
 
             base += Index(subMeshPoints.count)
         }
 
-        return (vertexData, centers + faces, centers.count)
+        let d1:Int = indices.count,
+            d2:Int = d1 + centers.count,
+            d3:Int = d2 + faces.count
+
+        let map = VoronoiMap(unitLoops: unitLoops, indices: indices,
+                centers: d1 ..< d2, faces: d2 ..< d3, selected: 0)
+
+        return (map, vertexBuffer, indices + centers + faces)
+    }
+}
+
+// TODO: make this a generic FloatingPoint struct
+struct VoronoiSphere
+{
+    //     index
+    //          ↖↘   NEIGHBOR
+    //    SELF    ·  ⇌  divergent
+    //          ↗↙
+
+    // this isn’t the same as UnsortedEdge to emphasize the sorted mapping,
+    // but it contains essentially the same kind of data in a similar format
+    struct Edge
+    {
+        let index:Int,
+            neighbor:Int,
+            divergent:Int
     }
 
-    static
-    func generate(fromNormalizedPoints points:[Math<Float>.V3]) -> VoronoiSphere
+    private
+    struct UnsortedEdge
+    {
+        let index:Int,
+            neighbor:UnsafePointer<Site>,
+            divergent:Int
+
+        init(index:Int, neighbor:UnsafeMutablePointer<Site>, divergent:Int)
+        {
+            self.index     = index
+            self.neighbor  = UnsafePointer(neighbor)
+            self.divergent = divergent
+        }
+    }
+
+    struct Cell
+    {
+        let center:Math<Float>.V3,
+            edges:[Edge]
+    }
+
+    let cells:[Cell],
+        vertices:[Math<Float>.V3]
+
+    init(normalizedPoints points:[Math<Float>.V3])
     {
         var sites:[Site] = points.map(Math.spherical(_:)).map(Site.init(_:))
-        let vertices:[Math<Float>.V3] = sites.withUnsafeMutableBufferPointer
+        (self.cells, self.vertices) = sites.withUnsafeMutableBufferPointer
         {
-            return generateVertices(sites: $0)
+            let vertices:[Math<Float>.V3] = VoronoiSphere.generateVertices(sites: $0)
+
+            // perform the ccw sort through a layer of indirection to avoid breaking
+            // twin links
+            let ccwWindings:[(center:Math<Float>.V3, ccw:[Int])] = $0.map
+            {
+                (site:Site) in
+
+                let center:Math<Float>.V3 = Math.cartesian(site.location),
+                    ccw:[Int] = VoronoiSphere.rankCounterClockwise(site.unsortedEdges,
+                        around: center, vertices: vertices)
+
+                return (center, ccw)
+            }
+
+            // create mapping of unsorted indices to sorted indices
+            let cellRanks:[UnsafeMutableBufferPointer<Int>] = ccwWindings.map
+            {
+                // need to use raw buffers because the ranks are filled in out-of-order
+                let ranks = UnsafeMutableBufferPointer<Int>.allocate(capacity: $0.ccw.count)
+
+                for (rank, unsortedIndex):(Int, Int) in $0.ccw.enumerated()
+                {
+                    (ranks.baseAddress! + unsortedIndex).initialize(to: rank)
+                }
+
+                return ranks
+            }
+            defer
+            {
+                for buffer:UnsafeMutableBufferPointer<Int> in cellRanks
+                {
+                    buffer.baseAddress?.deinitialize(count: buffer.count)
+                    buffer.baseAddress?.deallocate(capacity: buffer.count)
+                }
+            }
+
+            // flatten twin links
+
+            // there will always be at least one site
+            let base = UnsafePointer($0.baseAddress!)
+            let cells:[Cell] = zip($0, ccwWindings).map
+            {
+                (pair:(site:Site, ccwWinding:(center:Math<Float>.V3, ccw:[Int]))) in
+
+                let edges:[Edge] = pair.ccwWinding.ccw.map
+                {
+                    (unsortedIndex:Int) in
+
+                    let unsortedEdge:UnsortedEdge = pair.site.unsortedEdges[unsortedIndex]
+
+                    let index:Int     = unsortedEdge.index,
+                        neighbor:Int  = unsortedEdge.neighbor - base,
+                        divergent:Int = cellRanks[neighbor][unsortedEdge.divergent]
+
+                    return Edge(index: index, neighbor: neighbor, divergent: divergent)
+                }
+
+                return Cell(center: pair.ccwWinding.center, edges: edges)
+            }
+
+            return (cells, vertices)
         }
-
-        // vertexBuffer split vertices creating duplicates per face so that
-        // they can be colored differently
-        let cells:[Cell] = sites.map
-        {
-            (site:Site) in
-
-            let center:Math<Float>.V3 = Math.cartesian(site.location)
-            return Cell(center: center,
-                        vertexIndices: sortCounterClockwise(site.vertexIndicies,
-                                        around: center, vertices: vertices))
-        }
-
-        return VoronoiSphere(cells: cells, vertices: vertices)
     }
 
     private static
@@ -772,19 +940,20 @@ struct VoronoiSphere
         return vertices
     }
 
+    // returns the *indices* of the indices in counterclockwise order
     private static
-    func sortCounterClockwise(_ indices:[Int], around center:Math<Float>.V3,
+    func rankCounterClockwise(_ edges:[UnsortedEdge], around center:Math<Float>.V3,
         vertices:[Math<Float>.V3]) -> [Int]
     {
         //  pick an arbitrary point to serve as the twelve o’clock reference
-        let r:Math<Float>.V3 = Math.sub(vertices[indices[0]], center),
+        let r:Math<Float>.V3 = Math.sub(vertices[edges[0].index], center),
         //  center is also the normal on a sphere so this is really r × n
             p:Math<Float>.V3 = Math.cross(r, center)
         //  sort the points in increasing counterclockwise order
-        return indices.sorted
+        return [Int](0 ..< edges.count).sorted
         {
-            let a:Math<Float>.V3 = Math.sub(vertices[$0], center),
-                b:Math<Float>.V3 = Math.sub(vertices[$1], center)
+            let a:Math<Float>.V3 = Math.sub(vertices[edges[$0].index], center),
+                b:Math<Float>.V3 = Math.sub(vertices[edges[$1].index], center)
 
             let α:Float = Math.dot(a, p),
                 β:Float = Math.dot(b, p)
@@ -834,7 +1003,7 @@ struct VoronoiSphere
     struct Site
     {
         let location:Math<Float>.S2
-        var vertexIndicies:[Int] = []
+        var unsortedEdges:[UnsortedEdge] = []
 
         init(_ location:Math<Float>.S2)
         {
@@ -1052,15 +1221,26 @@ struct VoronoiSphere
         private
         var arc:ArcNode
 
-        private
-        let p1:UnsafeMutablePointer<Site>,
-            p2:UnsafeMutablePointer<Site>
+        // s0, s1, and s2 are wound counterclockwise so they can be used to
+        // determine edge twins
+
+        //           \       × s2
+        //            \
+        //         ea  \  → ec
+        //   s0 ×    ↖  · — — — — —
+        //             /  ↙ eb
+        //            /
+        //           /       × s1
 
         private
-        var p:UnsafeMutablePointer<Site>
+        var s0:UnsafeMutablePointer<Site>
         {
             return self.arc.element.site
         }
+
+        private
+        let s1:UnsafeMutablePointer<Site>,
+            s2:UnsafeMutablePointer<Site>
 
         let center:Math<Float>.V3,
             priority:Float
@@ -1071,11 +1251,14 @@ struct VoronoiSphere
                 pj:Math<Float>.V3 = Math.cartesian(arc.element.site.pointee.location),
                 pk:Math<Float>.V3 = Math.cartesian(  successor.site.pointee.location)
 
+            // we have (pi, pj, pk) such that they are in clockwise order when
+            // looking at them through the circumcenter, towards the center of the
+            // sphere.
             self.center   = Math.normalize(Math.cross(Math.sub(pi, pj), Math.sub(pk, pj)))
             self.priority = acos(self.center.z) + acos(Math.dot(self.center, pj))
-            self.arc      = arc
-            self.p1       = predecessor.site
-            self.p2       = successor.site
+            self.arc      = arc // s0
+            self.s1       = predecessor.site
+            self.s2       = successor.site
         }
 
         static
@@ -1097,18 +1280,24 @@ struct VoronoiSphere
             eventQueue:inout UnsafeBalancedTree<Event>,
             vertices:inout [Math<Float>.V3])
         {
+            vertices.append(self.center)
+            let i:Int = vertices.count - 1
+            let insertion0:Int = self.s2.pointee.unsortedEdges.count,
+                insertion1:Int = self.s0.pointee.unsortedEdges.count,
+                insertion2:Int = self.s1.pointee.unsortedEdges.count
+
+            self.s0.pointee.unsortedEdges.append(
+                UnsortedEdge(index: i, neighbor: self.s2, divergent: insertion0))
+            self.s1.pointee.unsortedEdges.append(
+                UnsortedEdge(index: i, neighbor: self.s0, divergent: insertion1))
+            self.s2.pointee.unsortedEdges.append(
+                UnsortedEdge(index: i, neighbor: self.s1, divergent: insertion2))
+
             // [ node0 ][ node1 ][ self.arc ][ node2 ][ node3 ]
             let node1:ArcNode = self.arc.predecessor() ?? wavefront.last()!,
                 node2:ArcNode = self.arc.successor() ?? wavefront.first()!,
                 node0:ArcNode = node1.predecessor() ?? wavefront.last()!,
                 node3:ArcNode = node2.successor() ?? wavefront.first()!
-
-            vertices.append(self.center)
-            let i:Int = vertices.count - 1
-            self.p.pointee.vertexIndicies.append(i)
-            self.p1.pointee.vertexIndicies.append(i)
-            self.p2.pointee.vertexIndicies.append(i)
-
             // must come after accesses to self.p, for obvious reasons
             wavefront.remove(self.arc)
 

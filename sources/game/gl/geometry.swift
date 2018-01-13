@@ -337,12 +337,13 @@ extension GL
             return body()
         }
 
-        func draw(start:Swift.Int = 0, count:Swift.Int, mode:GL.Enum = GL.TRIANGLES)
+        func draw(_ range:CountableRange<Swift.Int>, mode:GL.Enum)
         {
             self.bind
             {
-                glDrawElements(mode: mode, count: GL.Size(count),
-                    type: GL.UNSIGNED_INT, indices: UnsafeRawPointer(bitPattern: start * MemoryLayout<GL.UInt>.stride))
+                let byteOffset:Swift.Int = range.lowerBound * MemoryLayout<GL.UInt>.stride
+                glDrawElements(mode: mode, count: GL.Size(range.count),
+                    type: GL.UNSIGNED_INT, indices: UnsafeRawPointer(bitPattern: byteOffset))
             }
         }
     }

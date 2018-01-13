@@ -1,5 +1,25 @@
 import OpenGL
 
+struct Viewport
+{
+    var resolution:Math<Float>.V2,
+        center:Math<Float>.V2,
+        offset:Math<Float>.V2
+
+    init(symmetric:Math<Float>.V2, offset:Math<Float>.V2 = (0, 0))
+    {
+        self.init(symmetric, center: Math.scale(symmetric, by: 0.5), offset: offset)
+    }
+
+    init(_ resolution:Math<Float>.V2, center:Math<Float>.V2,
+        offset:Math<Float>.V2 = (0, 0))
+    {
+        self.resolution = resolution
+        self.center     = center
+        self.offset     = offset
+    }
+}
+
 struct GLCamera
 {
     private static
@@ -14,51 +34,35 @@ struct GLCamera
     /*
     standard camera uniform blocks
 
-    layout (std140) uniform CameraMatrixBlock
+    layout(std140) uniform CameraMatrixBlock
     {
         mat4 proj;    // [ 0  ..<  64]
         mat4 view;    // [64  ..< 128]
     };
 
-    layout (std140) uniform CameraDataBlock
+    layout(std140) uniform CameraDataBlock
     {
-        mat4  world;        // [  0 ..<  64]
-        vec3  position;     // [ 64 ..<  76]
-        float zFar;         // [ 76 ..<  80]
-        vec3  antinormal;   // [ 80 ..<  92]
-        float zNear;        // [ 92 ..<  96]
-        vec2  vspan;        // [ 96 ..< 104]
-        vec2  hspan;        // [104 ..< 112] size = 112
+        mat4  world;                // [  0 ..<  64]
+        vec3  position;             // [ 64 ..<  76]
+        float zFar;                 // [ 76 ..<  80]
+        vec3  antinormal;           // [ 80 ..<  92]
+        float zNear;                // [ 92 ..<  96]
+        vec2  size;                 // [ 96 ..< 104]
+        vec2  center;               // [104 ..< 112]
+
+        vec2  viewportResolution;   // [112 ..< 120]
+        vec2  viewportCenter;       // [120 ..< 128]
+        vec2  viewportOffset;       // [128 ..< 136]
+        float scale;                // [136 ..< 140] size = 140
     };
     */
 
-    /*
-                +-------------------+-----------+
-            ↑   |                   |           |
-        vspan.1 |                   |           |
-            ↓   |                   |           |
-                +-------------------+-----------+
-            ↑   |                   |           |
-                |                   |           |
-        vspan.0 |                   |           |
-                |                   |           |
-            ↓   |                   |           |
-                +-------------------+-----------+
-                 ←     hspan.0     → ← hspan.1 →
-
-                 ←   -hscreen.0    → ←hscreen.1→
-                +-------------------+-----------+
-            ↑   |                   |           |
-      vscreen.1 |                   |           |
-            ↓   |                   |           |
-                +-------------------+-----------+
-            ↑   |                   |           |
-                |                   |           |
-     -vscreen.0 |                   |           |
-                |                   |           |
-            ↓   |                   |           |
-                +-------------------+-----------+
-    */
+    // p0 and p1 define the dimensions of the near plane
+    // of the view frustum. p0.0 and p0.1 are generally negative. the width of
+    // the near plane of the view frustum in world space is x.1 - x.0, and the
+    // height is y.1 - y.0. z is not stored contiguously, but is made up of
+    // the aggregate {zFar, zNear}. note that both coordinates are generally
+    // negative, with zFar < zNear. 0 lies at the vertex of the view pyramid.
 
     private static
     let blockRanges:(BlockRange, BlockRange) =
@@ -68,7 +72,7 @@ struct GLCamera
 
         var blocks:(BlockRange, BlockRange)
         blocks.0 = (0, 128)
-        blocks.1 = (align(blocks.0.start + blocks.0.count, to: Int(alignment)), 112)
+        blocks.1 = (align(blocks.0.start + blocks.0.count, to: Int(alignment)), 140)
         return blocks
     }()
 
@@ -84,10 +88,15 @@ struct GLCamera
             zFar:Int       = Offset.world + 19,
             antinormal:Int = Offset.world + 20,
             zNear:Int      = Offset.world + 23,
-            vspan:Int      = Offset.world + 24,
-            hspan:Int      = Offset.world + 26,
+            size:Int       = Offset.world + 24,
+            center:Int     = Offset.world + 26,
 
-            __count__:Int = Offset.world + 28
+            viewportResolution:Int = Offset.world + 28,
+            viewportCenter:Int     = Offset.world + 30,
+            viewportOffset:Int     = Offset.world + 32,
+            scale:Int              = Offset.world + 34,
+
+            __count__:Int = Offset.world + 35
     }
 
     private
@@ -119,6 +128,7 @@ struct GLCamera
         return self.block + Offset.world
     }
 
+    private
     var position:Math<Float>.V3
     {
         get
@@ -130,6 +140,7 @@ struct GLCamera
             Math.copy(p, to: self.block + Offset.position)
         }
     }
+    private
     var antinormal:Math<Float>.V3
     {
         get
@@ -142,28 +153,33 @@ struct GLCamera
         }
     }
 
-    var x:Math<Float>.V2
+    private
+    var size:Math<Float>.V2
     {
         get
         {
-            return Math.load(from: self.block + Offset.hspan)
+            return Math.load(from: self.block + Offset.size)
         }
-        set(x)
+        set(size)
         {
-            Math.copy(x, to: self.block + Offset.hspan)
+            Math.copy(size, to: self.block + Offset.size)
         }
     }
-    var y:Math<Float>.V2
+
+    private
+    var center:Math<Float>.V2
     {
         get
         {
-            return Math.load(from: self.block + Offset.vspan)
+            return Math.load(from: self.block + Offset.center)
         }
-        set(y)
+        set(center)
         {
-            Math.copy(y, to: self.block + Offset.vspan)
+            Math.copy(center, to: self.block + Offset.center)
         }
     }
+
+    private
     var z:Math<Float>.V2
     {
         get
@@ -177,6 +193,39 @@ struct GLCamera
         }
     }
 
+    var viewport:Viewport
+    {
+        get
+        {
+            let resolution:Math<Float>.V2 =
+                    Math.load(from: self.block + Offset.viewportResolution),
+                center:Math<Float>.V2     =
+                    Math.load(from: self.block + Offset.viewportCenter),
+                offset:Math<Float>.V2     =
+                    Math.load(from: self.block + Offset.viewportOffset)
+            return Viewport(resolution, center: center, offset: offset)
+        }
+        set(v)
+        {
+            Math.copy(v.resolution, to: self.block + Offset.viewportResolution)
+            Math.copy(v.center    , to: self.block + Offset.viewportCenter)
+            Math.copy(v.offset    , to: self.block + Offset.viewportOffset)
+        }
+    }
+
+    private
+    var scale:Float
+    {
+        get
+        {
+            return self.block[Offset.scale]
+        }
+        set(v)
+        {
+            self.block[Offset.scale] = v
+        }
+    }
+
     var tangent:Math<Float>.V3
     {
         return (self.view[0], self.view[4], self.view[8])
@@ -187,7 +236,7 @@ struct GLCamera
     }
 
     static
-    func create(x:Math<Float>.V2, y:Math<Float>.V2, z:Math<Float>.V2) -> GLCamera
+    func create(viewport:Viewport, focalLength:Float, z:Math<Float>.V2) -> GLCamera
     {
         let uniformBuffer = GL.Buffer.generate()
         uniformBuffer.bind(to: .uniform)
@@ -214,9 +263,12 @@ struct GLCamera
         camera.proj[11] = -1 // the perspective -1 in the projection matrix formula
         camera.view[15] =  1 // the identity 1
         camera.world.initialize(to: 0, count: 16)
-        camera.x = x
-        camera.y = y
-        camera.z = z
+
+        camera.z        = z
+        camera.viewport = viewport
+
+        camera.calculateFrustum(focalLength: focalLength)
+
         camera.updateProjection()
         return camera
     }
@@ -225,6 +277,16 @@ struct GLCamera
     {
         self.uniformBuffer.destroy()
         self.block.deallocate(capacity: Offset.__count__)
+    }
+
+    // focal length is 35mm equivalent
+    mutating
+    func calculateFrustum(focalLength:Float)
+    {
+        self.scale    = -self.z.1 * Math.length((24, 36)) /
+                (focalLength * Math.length(self.viewport.resolution))
+        self.size     = Math.scale(self.viewport.resolution, by: self.scale)
+        self.center   = Math.scale(self.viewport.center    , by: self.scale)
     }
 
     mutating
@@ -241,21 +303,23 @@ struct GLCamera
         //  height = t - b
         //  shiftx = r + l
         //  shifty = t + b
-        //  zDepth = f - n
+        //  depth  = f - n
         //
         //  note: n and f are positive quantities, but self.z is a negative
-        //  tuple following the conventions of OpenGL device space
+        //  tuple following the conventions of OpenGL clip space
 
-        let width:Float  = self.x.1 - self.x.0,
-            height:Float = self.y.1 - self.y.0,
-            zDepth:Float = self.z.1 - self.z.0
+        let depth:Float    = self.z.1 - self.z.0,
+            distance:Float = self.z.1 + self.z.0
 
-        self.proj[ 0] = -2 * self.z.1 / width
-        self.proj[ 5] = -2 * self.z.1 / height
-        self.proj[ 8] = (self.x.1 + self.x.0) / width
-        self.proj[ 9] = (self.y.1 + self.y.0) / height
-        self.proj[10] = (self.z.0 + self.z.1) / zDepth
-        self.proj[14] = -2 * self.z.0 * self.z.1 / zDepth
+        let displacement:Math<Float>.V2 =
+                Math.sub(self.center, Math.scale(self.size, by: 0.5))
+
+        self.proj[ 0] = -2 * self.z.1 / self.size.x
+        self.proj[ 5] = -2 * self.z.1 / self.size.y
+        self.proj[ 8] = displacement.x / self.size.x
+        self.proj[ 9] = displacement.y / self.size.y
+        self.proj[10] = distance / depth
+        self.proj[14] = -2 * self.z.0 * self.z.1 / depth
     }
 
     mutating
@@ -287,8 +351,10 @@ struct GLCamera
     }
 
     mutating
-    func updateWorld(vanishingPoint:Math<Float>.V2, scale:Float)
+    func updateWorld()
     {
+        let center:Math<Float>.V2     = self.viewport.center
+
         let tangent:Math<Float>.V3    = self.tangent,
             bitangent:Math<Float>.V3  = self.bitangent,
             antinormal:Math<Float>.V3 = self.antinormal
@@ -298,12 +364,12 @@ struct GLCamera
             //  [2]: k Tz   [6]: k Bz   [10]: -Nz   [14]: -k(Tz vx + Bz vy)
             //  [3]: 0      [7]: 0      [11]:  0    [15]:  1
 
-            let k:Float = scale / self.z.1
+            let k:Float = self.scale / self.z.1
             Math.copy(Math.scale(  tangent, by: k), to: self.world)
             Math.copy(Math.scale(bitangent, by: k), to: self.world + 4)
             Math.copy(antinormal,                   to: self.world + 8)
-            Math.copy(Math.scale(Math.add(Math.scale(tangent  , by: vanishingPoint.x),
-                                          Math.scale(bitangent, by: vanishingPoint.y)),
+            Math.copy(Math.scale(Math.add(Math.scale(tangent  , by: center.x),
+                                          Math.scale(bitangent, by: center.y)),
                                  by: -k),           to: self.world + 12)
     }
 
@@ -320,8 +386,7 @@ struct GLCameraRig
 {
     private
     var camera:GLCamera,
-        vanishingPoint:Math<Float>.V2,
-        scale:Float
+        focalLength:Float
 
     private(set)
     var distance:Float             = 0,
@@ -334,15 +399,11 @@ struct GLCameraRig
 
 
     static
-    func create(hscreen:Math<Float>.V2, vscreen:Math<Float>.V2,
-        z:Math<Float>.V2 = (-1000, -1), scale:Float = 0.001)
+    func create(viewport:Viewport, focalLength:Float, z:Math<Float>.V2 = (-1000, -1))
         -> GLCameraRig
     {
-        let camera = GLCamera.create(   x: Math.scale(hscreen, by: scale),
-                                        y: Math.scale(vscreen, by: scale),
-                                        z: z)
-        return GLCameraRig( camera: camera,
-                            vanishingPoint: (-hscreen.0, -vscreen.0), scale: scale)
+        let camera = GLCamera.create(viewport: viewport, focalLength: focalLength, z: z)
+        return GLCameraRig(camera: camera, focalLength: focalLength)
     }
 
     func destroy()
@@ -351,21 +412,28 @@ struct GLCameraRig
     }
 
     private
-    init(camera:GLCamera, vanishingPoint:Math<Float>.V2, scale:Float)
+    init(camera:GLCamera, focalLength:Float)
     {
-        self.camera         = camera
-        self.vanishingPoint = vanishingPoint
-        self.scale          = scale
+        self.camera      = camera
+        self.focalLength = focalLength
     }
 
     mutating
-    func setDimensions(hscreen:Math<Float>.V2, vscreen:Math<Float>.V2)
+    func setViewport(_ viewport:Viewport)
     {
-        self.vanishingPoint = (-hscreen.0, -vscreen.0)
-        self.camera.x       = Math.scale(hscreen, by: self.scale)
-        self.camera.y       = Math.scale(vscreen, by: self.scale)
+        self.camera.viewport = viewport
+        self.camera.calculateFrustum(focalLength: self.focalLength)
         self.camera.updateProjection()
-        self.camera.updateWorld(vanishingPoint: self.vanishingPoint, scale: self.scale)
+        self.camera.updateWorld()
+    }
+
+    mutating
+    func zoom(focalLength:Float)
+    {
+        self.focalLength = focalLength
+        self.camera.calculateFrustum(focalLength: self.focalLength)
+        self.camera.updateProjection()
+        self.camera.updateWorld()
     }
 
     private mutating
@@ -379,7 +447,7 @@ struct GLCameraRig
         self.camera.updateView( normal:   normal,
                                 tangent:  tangent,
                                 position: Math.scadd(self.pivot, normal, self.distance))
-        self.camera.updateWorld(vanishingPoint: self.vanishingPoint, scale: self.scale)
+        self.camera.updateWorld()
     }
 
     mutating

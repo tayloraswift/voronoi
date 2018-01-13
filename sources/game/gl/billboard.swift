@@ -96,7 +96,7 @@ struct Billboard
     {
         Programs.billboard.activate()
         self.texture.activate(onUnit: 0, target: GL.TEXTURE_2D)
-        self.vao.draw(count: 6)
+        self.vao.draw(0 ..< 6, mode: GL.TRIANGLES)
         GLTexture.unbind(from: GL.TEXTURE_2D)
     }
 

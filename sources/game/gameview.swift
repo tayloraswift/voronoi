@@ -20,6 +20,11 @@ enum Programs
     let spherecolor = Program.create(shaders:
             [("shaders/spherecolor.vert", .vertex), ("shaders/spherecolor.frag", .fragment)],
             uniforms: ["matrix_model", "sun"])!
+
+    static
+    let polyline    = Program.create(shaders:
+            [("shaders/spherecolor.vert", .vertex), ("shaders/polyline.geom", .geometry), ("shaders/polyline.frag", .fragment)],
+            uniforms: ["matrix_model"])!
 }
 
 extension BinaryFloatingPoint
@@ -43,9 +48,10 @@ struct View3D:GameScene
     private
     let _voronoiVBO:GL.Buffer,
         _voronoiEBO:GL.Buffer,
-        _voronoiVAO:GL.VertexArray,
-        _voronoiSiteCount:Int,
-        _voronoiFacesElemsCount:Int
+        _voronoiVAO:GL.VertexArray
+
+    private
+    var _voronoiMap:VoronoiMap<GL.UInt>
 
     private
     var fpsCounter:Billboard,
@@ -60,10 +66,10 @@ struct View3D:GameScene
     {
         self.size = frame
 
-        self.rig = GLCameraRig.create(  hscreen: Math.scale((-0.5, 0.5), by: Float(frame.x)),
-                                        vscreen: Math.scale((-0.5, 0.5), by: Float(frame.y)),
-                                        z: (-400, -0.10),
-                                        scale: 0.0001)
+        self.rig = GLCameraRig.create(viewport:
+                Viewport(symmetric: Math.castFloat(frame)),
+                focalLength: 30, z: (-400, -0.10))
+
         self.rig.jump(pivot: (0, 0, 0), angle: (2.21, 1.42), distance: 4.05)
 
         self.fpsCounter = Billboard(at: (-1, 1), size: (820, -30), frame: frame)
@@ -76,19 +82,18 @@ struct View3D:GameScene
         self.__debugPanel__.context.setFontSize(13)
 
         var points:[Math<Float>.V3] = []
-            points.reserveCapacity(100)
+            points.reserveCapacity(200)
         var prng = RandomXorshift(seed: 2)
-        for _ in 0 ..< 100
+        for _ in 0 ..< 200
         {
             points.append(prng.generateUnitFloat3())
         }
 
-        let voronoiSphere = VoronoiSphere.generate(fromNormalizedPoints: points)
-        let (vertexData, indices, facesOffset):([Float], [GL.UInt], Int) =
-            voronoiSphere.vertexArrays()
+        let vertexBuffer:[Float],
+            indexBuffer:[GL.UInt]
 
-        self._voronoiSiteCount       = facesOffset
-        self._voronoiFacesElemsCount = indices.count - facesOffset
+        (self._voronoiMap, vertexBuffer, indexBuffer) =
+            VoronoiMap<GL.UInt>.generate(normalizedPoints: points)
 
         self._voronoiVBO = GL.Buffer.generate()
         self._voronoiEBO = GL.Buffer.generate()
@@ -96,14 +101,14 @@ struct View3D:GameScene
 
         self._voronoiVBO.bind(to: .array)
         {
-            GL.Buffer.Target.array.data(vertexData, usage: .staticDraw)
+            GL.Buffer.Target.array.data(vertexBuffer, usage: .staticDraw)
 
             self._voronoiVAO.bind()
             GL.setVertexAttributeLayout(.float(.float3, false), .float(.float3, false))
 
             self._voronoiEBO.bind(to: .elementArray)
             {
-                GL.Buffer.Target.elementArray.data(indices, usage: .staticDraw)
+                GL.Buffer.Target.elementArray.data(indexBuffer, usage: .staticDraw)
 
                 self._voronoiVAO.unbind()
             }
@@ -128,6 +133,7 @@ struct View3D:GameScene
     {
         self.rig.activate()
 
+        glEnable(GL.DEPTH_TEST)
         glEnable(GL.CULL_FACE)
         glEnable(GL.LINE_SMOOTH)
         glPolygonMode(face: GL.FRONT_AND_BACK, mode: self.renderMode)
@@ -137,7 +143,7 @@ struct View3D:GameScene
         Programs.spherecolor.uniform(0,
             mat4: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1])
 
-        self._voronoiVAO.draw(start: self._voronoiSiteCount, count: self._voronoiFacesElemsCount, mode: GL.TRIANGLES)
+        self._voronoiVAO.draw(self._voronoiMap.faces, mode: GL.TRIANGLES)
 
         glPointSize(2)
 
@@ -145,8 +151,15 @@ struct View3D:GameScene
         Programs.solid.uniform(0,
             mat4: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1])
         Programs.solid.uniform(1, vec4: (1, 1, 1, 1))
-        self._voronoiVAO.draw(count: self._voronoiSiteCount, mode: GL.POINTS)
+        self._voronoiVAO.draw(self._voronoiMap.centers, mode: GL.POINTS)
 
+        /*
+        glDisable(GL.DEPTH_TEST)
+        Programs.polyline.activate()
+        Programs.polyline.uniform(0,
+            mat4: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1])
+        self._voronoiVAO.draw(self._voronoiMap.selectedLoop.full, mode: GL.LINE_LOOP)
+        */
         self.drawText(dt: dt)
     }
 
@@ -177,7 +190,7 @@ struct View3D:GameScene
                             ", θ: "  + self.rig.angle.θ.format(decimalPlaces: 3) +
                             ", φ: "  + self.rig.angle.φ.format(decimalPlaces: 3) +
                             ", ρ: "  + self.rig.distance.format(decimalPlaces: 3) + ")"
-        self.fpsCounter.context.showText("render mode: \(renderModeStr) | \(posStr) | \(Int((1/dt).rounded())) FPS")
+        self.fpsCounter.context.showText("render mode: \(renderModeStr) | \(posStr) | \(Int((1000 * dt).rounded())) ms")
         self.fpsCounter.update()
         glPolygonMode(face: GL.FRONT_AND_BACK, mode: GL.FILL)
         self.fpsCounter.draw()
@@ -205,8 +218,7 @@ struct View3D:GameScene
         self.fpsCounter.rebase(toFrame: newFrame)
         self.__debugPanel__.rebase(toFrame: newFrame)
 
-        self.rig.setDimensions( hscreen: Math.scale((-0.5, 0.5), by: Float(newFrame.x)),
-                                vscreen: Math.scale((-0.5, 0.5), by: Float(newFrame.y)))
+        self.rig.setViewport(Viewport(symmetric: Math.castFloat(newFrame)))
     }
 
     mutating
@@ -277,6 +289,20 @@ struct View3D:GameScene
 
         case .four:
             self.screenshot()
+
+        case .left:
+            self._voronoiMap.selected -= 1
+            if self._voronoiMap.selected < 0
+            {
+                self._voronoiMap.selected = self._voronoiMap.count - 1
+            }
+
+        case .right:
+            self._voronoiMap.selected += 1
+            if self._voronoiMap.selected == self._voronoiMap.count
+            {
+                self._voronoiMap.selected = 0
+            }
 
         default:
             return
