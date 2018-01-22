@@ -10,6 +10,7 @@ layout(std140) uniform CameraMatrixBlock
 } matrix;
 
 uniform mat4 matrix_model;
+uniform mat3 matrix_normal;
 
 out Vertex
 {
@@ -21,5 +22,5 @@ void main()
 {
     gl_Position   = matrix.proj * matrix.view * matrix_model * vec4(position, 1);
     vertex.color  = color;
-    vertex.normal = position;
+    vertex.normal = matrix_normal * position;
 }

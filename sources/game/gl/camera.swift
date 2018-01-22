@@ -373,6 +373,34 @@ struct GLCamera
                                  by: -k),           to: self.world + 12)
     }
 
+    // returns a 3 × 3 normal matrix, transpose(inverse(view × model))
+    func normalMatrix(modelMatrix:Math<Float>.Mat4) -> Math<Float>.Mat3
+    {
+        let V:(Math<Float>.V3, Math<Float>.V3, Math<Float>.V3, Math<Float>.V3) =
+        (
+            Math.load(from: self.view),
+            Math.load(from: self.view + 4),
+            Math.load(from: self.view + 8),
+            Math.load(from: self.view + 12)
+        )
+
+        let M:(Math<Float>.V4, Math<Float>.V4, Math<Float>.V4) =
+        (
+            modelMatrix.0,
+            modelMatrix.1,
+            modelMatrix.2
+        )
+
+        let X:Math<Float>.Mat3 = Math.mult(V, M)
+
+        let invDeterminant:Float = 1 / Math.dot(X.0, Math.cross(X.1, X.2))
+        return (
+            Math.scale(Math.cross(X.1, X.2), by: invDeterminant),
+            Math.scale(Math.cross(X.2, X.0), by: invDeterminant),
+            Math.scale(Math.cross(X.0, X.1), by: invDeterminant)
+        )
+    }
+
     func activate()
     {
         self.uniformBuffer.bind(to: .uniform)
@@ -384,7 +412,7 @@ struct GLCamera
 
 struct GLCameraRig
 {
-    private
+    private(set)
     var camera:GLCamera,
         focalLength:Float
 

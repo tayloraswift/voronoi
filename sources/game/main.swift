@@ -24,6 +24,7 @@ func main()
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_ANY_PROFILE)
     glfwWindowHint(GLFW_RESIZABLE, 1)
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, 1)
+    glfwWindowHint(GLFW_SAMPLES, 4)
 
     let interface:Interface = Interface(size: (1200, 600), name: "Diannamy 3")
 

@@ -181,6 +181,7 @@ class Interface
         glBlendFuncSeparate(GL.SRC_ALPHA, GL.ONE_MINUS_SRC_ALPHA,
                             GL.ONE_MINUS_DST_ALPHA, GL.ONE)
         glEnable(GL.BLEND)
+        glEnable(GL.MULTISAMPLE)
 
         var t0:Double = glfwGetTime()
         while glfwWindowShouldClose(self.window) == 0

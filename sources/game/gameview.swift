@@ -19,12 +19,11 @@ enum Programs
     static
     let spherecolor = Program.create(shaders:
             [("shaders/spherecolor.vert", .vertex), ("shaders/spherecolor.frag", .fragment)],
-            uniforms: ["matrix_model", "sun"])!
-
+            uniforms: ["matrix_model", "matrix_normal", "sun"])!
     static
     let polyline    = Program.create(shaders:
             [("shaders/spherecolor.vert", .vertex), ("shaders/polyline.geom", .geometry), ("shaders/polyline.frag", .fragment)],
-            uniforms: ["matrix_model"])!
+            uniforms: ["matrix_model", "matrix_normal"])!
 }
 
 extension BinaryFloatingPoint
@@ -56,7 +55,7 @@ struct View3D:GameScene
     private
     var fpsCounter:Billboard,
         renderMode:GL.Enum = GL.FILL,
-        zoomLevel:Int = 9,
+        zoomLevel:Int = 7,
 
         rig:GLCameraRig,
 
@@ -70,7 +69,7 @@ struct View3D:GameScene
                 Viewport(symmetric: Math.castFloat(frame)),
                 focalLength: 30, z: (-400, -0.10))
 
-        self.rig.jump(pivot: (0, 0, 0), angle: (2.21, 1.42), distance: 4.05)
+        self.rig.jump(pivot: (0, 0, 0), angle: (0.165, 2.22), distance: 2.45)
 
         self.fpsCounter = Billboard(at: (-1, 1), size: (820, -30), frame: frame)
         // yes this is a horrible way to draw cairo text but whatever
@@ -83,7 +82,7 @@ struct View3D:GameScene
 
         var points:[Math<Float>.V3] = []
             points.reserveCapacity(200)
-        var prng = RandomXorshift(seed: 2)
+        var prng = RandomXorshift(seed: 3)
         for _ in 0 ..< 200
         {
             points.append(prng.generateUnitFloat3())
@@ -135,31 +134,31 @@ struct View3D:GameScene
 
         glEnable(GL.DEPTH_TEST)
         glEnable(GL.CULL_FACE)
-        glEnable(GL.LINE_SMOOTH)
         glPolygonMode(face: GL.FRONT_AND_BACK, mode: self.renderMode)
 
+        let model:Math<Float>.Mat4 =
+            ((1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0), (0, 0, 0, 1))
+        let normal:Math<Float>.Mat3 = self.rig.camera.normalMatrix(modelMatrix: model)
+
         Programs.spherecolor.activate()
-        Programs.spherecolor.uniform(1, vec3: Math.normalize((-1, -1, 0)))
-        Programs.spherecolor.uniform(0,
-            mat4: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1])
+        Programs.spherecolor.uniform(0, mat4: [model])
+        Programs.spherecolor.uniform(1, mat3: [normal])
+        Programs.spherecolor.uniform(2, vec3: Math.mult(normal, Math.normalize((-1, -1, 0))))
 
         self._voronoiVAO.draw(self._voronoiMap.faces, mode: GL.TRIANGLES)
 
         glPointSize(2)
 
         Programs.solid.activate()
-        Programs.solid.uniform(0,
-            mat4: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1])
+        Programs.solid.uniform(0, mat4: [model])
         Programs.solid.uniform(1, vec4: (1, 1, 1, 1))
         self._voronoiVAO.draw(self._voronoiMap.centers, mode: GL.POINTS)
 
-        /*
         glDisable(GL.DEPTH_TEST)
         Programs.polyline.activate()
-        Programs.polyline.uniform(0,
-            mat4: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1])
-        self._voronoiVAO.draw(self._voronoiMap.selectedLoop.full, mode: GL.LINE_LOOP)
-        */
+        Programs.polyline.uniform(0, mat4: [model])
+        Programs.polyline.uniform(1, mat3: [normal])
+        self._voronoiVAO.draw(self._voronoiMap.selectedLoop.adjacency, mode: GL.LINE_STRIP_ADJACENCY)
         self.drawText(dt: dt)
     }
 

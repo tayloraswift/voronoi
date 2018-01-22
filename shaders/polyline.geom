@@ -26,13 +26,12 @@ layout(std140) uniform CameraDataBlock
 
 //uniform float thickness;
 
-layout(triangle_strip, max_vertices = 7) out;
+layout(triangle_strip, max_vertices = 6) out;
 
 out Vertex
 {
     noperspective vec3 color;
 } geometry;
-
 
 vec2 screen(vec4 clip)
 {
@@ -46,6 +45,7 @@ vec4 clip(vec2 screen)
 
 void polyline(const vec2 nodes[4])
 {
+    const float thickness = 2;
     //                   . nodes[i + 1]
     //  normals[i] ↖   ↗ vectors[i]
     //               ·
@@ -74,16 +74,55 @@ void polyline(const vec2 nodes[4])
     //            0 ——— ­1
 
     geometry.color = vertex[1].color;
-    gl_Position = clip(nodes[1] + 3 * normals[1]);
+    gl_Position = clip(nodes[1] + thickness * normals[1]);
     EmitVertex();
-    gl_Position = clip(nodes[1] - 3 * normals[1]);
+    gl_Position = clip(nodes[1] - thickness * normals[1]);
     EmitVertex();
 
     geometry.color = vertex[2].color;
-    gl_Position = clip(nodes[2] + 3 * normals[1]);
+    gl_Position = clip(nodes[2] + thickness * normals[1]);
     EmitVertex();
-    gl_Position = clip(nodes[2] - 3 * normals[1]);
+    gl_Position = clip(nodes[2] - thickness * normals[1]);
     EmitVertex();
+
+    const vec2 miter = normalize(normals[1] + normals[2]);
+
+    // project miter onto normal, then scale it up until the projection is the
+    // same size as the normal, so we know how big the ful size miter vector is
+
+    const float p = dot(miter, normals[1]);
+
+    if (p == 0)
+    {
+        EndPrimitive();
+        return;
+    }
+
+    //           ↗
+    // ——————→ ·
+    if (dot(vectors[2], normals[1]) > 0)
+    {
+        gl_Position = clip(nodes[2] - thickness * normals[2]);
+        EmitVertex();
+        // only emit miter if it’s a reasonable length
+        if (p > 0.5)
+        {
+            gl_Position = clip(nodes[2] - miter * thickness / p);
+            EmitVertex();
+        }
+    }
+    else
+    {
+        // only emit miter if it’s a reasonable length
+        if (p > 0.5)
+        {
+            gl_Position = clip(nodes[2] + miter * thickness / p);
+            EmitVertex();
+        }
+        gl_Position = clip(nodes[2] + thickness * normals[2]);
+        EmitVertex();
+    }
+
     EndPrimitive();
 }
 

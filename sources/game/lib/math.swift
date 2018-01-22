@@ -171,7 +171,11 @@ extension Double:_SwiftFloatingPoint
 enum Math<N>
 {
     typealias V2 = (x:N, y:N)
-    typealias V3 = (x:N, y:N, z:N) 
+    typealias V3 = (x:N, y:N, z:N)
+    typealias V4 = (x:N, y:N, z:N, w:N)
+
+    typealias Mat3 = (V3, V3, V3)
+    typealias Mat4 = (V4, V4, V4, V4)
 
     @inline(__always)
     static
@@ -188,6 +192,15 @@ enum Math<N>
         ptr[1] = v.y
         ptr[2] = v.z
     }
+    @inline(__always)
+    static
+    func copy(_ v:V4, to ptr:UnsafeMutablePointer<N>)
+    {
+        ptr[0] = v.x
+        ptr[1] = v.y
+        ptr[2] = v.z
+        ptr[3] = v.w
+    }
 
     @inline(__always)
     static
@@ -200,6 +213,12 @@ enum Math<N>
     func load(from ptr:UnsafeMutablePointer<N>) -> V3
     {
         return (ptr[0], ptr[1], ptr[2])
+    }
+    @inline(__always)
+    static
+    func load(from ptr:UnsafeMutablePointer<N>) -> V4
+    {
+        return (ptr[0], ptr[1], ptr[2], ptr[3])
     }
 }
 
@@ -295,6 +314,12 @@ extension Math where N:Numeric
     {
         return v1.x * v2.x + v1.y * v2.y + v1.z * v2.z
     }
+    @inline(__always)
+    static
+    func dot(_ v1:V4, _ v2:V4) -> N
+    {
+        return v1.x * v2.x + v1.y * v2.y + v1.z * v2.z + v1.w * v2.w
+    }
 
     @inline(__always)
     static
@@ -314,6 +339,48 @@ extension Math where N:Numeric
     func cross(_ v1:V3, _ v2:V3) -> V3
     {
         return (v1.y*v2.z - v2.y*v1.z, v1.z*v2.x - v2.z*v1.x, v1.x*v2.y - v2.x*v1.y)
+    }
+
+    // matrix math
+    @inline(__always)
+    static
+    func transpose(_ M:Mat3) -> Mat3
+    {
+        return ((M.0.0, M.1.0, M.2.0), (M.0.1, M.1.1, M.2.1), (M.0.2, M.1.2, M.2.2))
+    }
+    @inline(__always)
+    static
+    func transpose(_ M:(V3, V3, V3, V3)) -> (V4, V4, V4)
+    {
+        return ((M.0.0, M.1.0, M.2.0, M.3.0),
+                (M.0.1, M.1.1, M.2.1, M.3.1),
+                (M.0.2, M.1.2, M.2.2, M.3.2))
+    }
+
+    @inline(__always)
+    static
+    func mult(_ A:Mat3, _ v:V3) -> V3
+    {
+        let AT:(V3, V3, V3) = transpose(A)
+        return (dot(AT.0, v), dot(AT.1, v), dot(AT.2, v))
+    }
+    @inline(__always)
+    static
+    func mult(_ A:Mat3, _ B:Mat3) -> Mat3
+    {
+        let AT:(V3, V3, V3) = transpose(A)
+        return ((dot(AT.0, B.0), dot(AT.1, B.0), dot(AT.2, B.0)),
+                (dot(AT.0, B.1), dot(AT.1, B.1), dot(AT.2, B.1)),
+                (dot(AT.0, B.2), dot(AT.1, B.2), dot(AT.2, B.2)))
+    }
+    @inline(__always)
+    static
+    func mult(_ A:(V3, V3, V3, V3), _ B:(V4, V4, V4)) -> Mat3
+    {
+        let AT:(V4, V4, V4) = transpose(A)
+        return ((dot(AT.0, B.0), dot(AT.1, B.0), dot(AT.2, B.0)),
+                (dot(AT.0, B.1), dot(AT.1, B.1), dot(AT.2, B.1)),
+                (dot(AT.0, B.2), dot(AT.1, B.2), dot(AT.2, B.2)))
     }
 }
 
@@ -542,26 +609,26 @@ extension Math where N:FloatingPoint
     static
     func length(_ v:V2) -> N
     {
-        return Math.eusq(v).squareRoot()
+        return eusq(v).squareRoot()
     }
     @inline(__always)
     static
     func length(_ v:V3) -> N
     {
-        return Math.eusq(v).squareRoot()
+        return eusq(v).squareRoot()
     }
 
     @inline(__always)
     static
     func normalize(_ v:V2) -> V2
     {
-        return Math.scale(v, by: 1 / Math.eusq(v).squareRoot())
+        return scale(v, by: 1 / eusq(v).squareRoot())
     }
     @inline(__always)
     static
     func normalize(_ v:V3) -> V3
     {
-        return Math.scale(v, by: 1 / Math.eusq(v).squareRoot())
+        return scale(v, by: 1 / eusq(v).squareRoot())
     }
 }
 extension Math where N == Double

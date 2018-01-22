@@ -313,27 +313,46 @@ struct Program
 
     func uniform(_ location:Int, float:Float)
     {
-        glUniform1f(GL.Int(location), float)
+        glUniform1f(self.uniforms[location], float)
     }
 
     func uniform(_ location:Int, vec2:Math<Float>.V2)
     {
-        glUniform2f(GL.Int(location), vec2.0, vec2.1)
+        glUniform2f(self.uniforms[location], vec2.0, vec2.1)
     }
 
     func uniform(_ location:Int, vec3:Math<Float>.V3)
     {
-        glUniform3f(GL.Int(location), vec3.0, vec3.1, vec3.2)
+        glUniform3f(self.uniforms[location], vec3.0, vec3.1, vec3.2)
     }
 
-    func uniform(_ location:Int, vec4:(Float, Float, Float, Float))
+    func uniform(_ location:Int, vec4:Math<Float>.V4)
     {
-        glUniform4f(GL.Int(location), vec4.0, vec4.1, vec4.2, vec4.3)
+        glUniform4f(self.uniforms[location], vec4.0, vec4.1, vec4.2, vec4.3)
     }
 
-    func uniform(_ location:Int, mat4:[Float], count:Int = 1)
+    func uniform(_ location:Int, mat3:[Math<Float>.Mat3], count:Int = 1)
     {
-        glUniformMatrix4fv(GL.Int(location), GL.Size(count), false, mat4)
+        mat3.withUnsafeBufferPointer
+        {
+            let raw:UnsafeRawPointer?        = UnsafeRawPointer($0.baseAddress),
+                buffer:UnsafePointer<Float>? =
+                    raw?.bindMemory(to: Float.self, capacity: mat3.count * 9)
+            glUniformMatrix3fv(self.uniforms[location], GL.Size(count), false, buffer)
+            raw?.bindMemory(to: Math<Float>.Mat3.self, capacity: mat3.count)
+        }
+    }
+    func uniform(_ location:Int, mat4:[Math<Float>.Mat4], count:Int = 1)
+    {
+        mat4.withUnsafeBufferPointer
+        {
+            let raw:UnsafeRawPointer?        = UnsafeRawPointer($0.baseAddress),
+                buffer:UnsafePointer<Float>? =
+                    raw?.bindMemory(to: Float.self, capacity: mat4.count << 4)
+            glUniformMatrix4fv(self.uniforms[location], GL.Size(count), false, buffer)
+
+            raw?.bindMemory(to: Math<Float>.Mat4.self, capacity: mat4.count)
+        }
     }
 
     func activate()
