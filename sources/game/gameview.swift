@@ -22,7 +22,7 @@ enum Programs
             uniforms: ["matrix_model", "matrix_normal", "sun"])!
     static
     let polyline    = Program.create(shaders:
-            [("shaders/spherecolor.vert", .vertex), ("shaders/polyline.geom", .geometry), ("shaders/polyline.frag", .fragment)],
+            [("shaders/polyline.vert", .vertex), ("shaders/polyline.geom", .geometry), ("shaders/polyline.frag", .fragment)],
             uniforms: ["matrix_model", "matrix_normal"])!
 }
 

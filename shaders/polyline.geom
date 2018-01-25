@@ -4,9 +4,10 @@ layout(lines_adjacency) in;
 
 in Vertex
 {
+    vec3 viewPosition;
+    vec3 viewNormal;
     vec3 color;
-    vec3 normal;
-} vertex[4];
+} vertices[4];
 
 layout(std140) uniform CameraDataBlock
 {
@@ -43,6 +44,12 @@ vec4 clip(vec2 screen)
     return vec4(screen / camera.viewportResolution, 0, 1);
 }
 
+bool backfacing(const int i0, const int i1)
+{
+    vec3 normal = vertices[i0].viewNormal + vertices[i1].viewNormal;
+    return dot(normal, vertices[i0].viewPosition) > 0;
+}
+
 void polyline(const vec2 nodes[4])
 {
     const float thickness = 2;
@@ -73,22 +80,28 @@ void polyline(const vec2 nodes[4])
     //            |   \ |
     //            0 ——— ­1
 
-    geometry.color = vertex[1].color;
+    geometry.color = vertices[1].color;
     gl_Position = clip(nodes[1] + thickness * normals[1]);
     EmitVertex();
     gl_Position = clip(nodes[1] - thickness * normals[1]);
     EmitVertex();
 
-    geometry.color = vertex[2].color;
+    geometry.color = vertices[2].color;
     gl_Position = clip(nodes[2] + thickness * normals[1]);
     EmitVertex();
     gl_Position = clip(nodes[2] - thickness * normals[1]);
     EmitVertex();
 
+    if (backfacing(2, 3))
+    {
+        EndPrimitive();
+        return;
+    }
+
     const vec2 miter = normalize(normals[1] + normals[2]);
 
     // project miter onto normal, then scale it up until the projection is the
-    // same size as the normal, so we know how big the ful size miter vector is
+    // same size as the normal, so we know how big the full size miter vector is
 
     const float p = dot(miter, normals[1]);
 
@@ -128,6 +141,11 @@ void polyline(const vec2 nodes[4])
 
 void main()
 {
+    if (backfacing(1, 2))
+    {
+        return;
+    }
+
     vec2 nodes[4];
     nodes[0] = screen(gl_in[0].gl_Position);
     nodes[1] = screen(gl_in[1].gl_Position);
